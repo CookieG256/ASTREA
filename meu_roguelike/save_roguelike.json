@@ -1,0 +1,13 @@
+{
+    "gemas": 10,
+    "index_descobertas": {
+        "armas": {
+            "pistola": true
+        },
+        "artefatos": {
+            "moeda_sorte": true
+        },
+        "mobs": {}
+    },
+    "conquistas": {}
+}
