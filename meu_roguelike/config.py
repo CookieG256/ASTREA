@@ -46,8 +46,8 @@ BIOMAS_ESTETICA = {
 
 CONFIG_JOGO = {
     'modo_tiro': 'AUTOMATICO', 
-    'volume_sfx': 80,
-    'volume_musica': 50,
+    'volume_sfx': 8,
+    'volume_musica': 5,
     'modo_dificuldade': 'CASUAL',
     'idioma': 'PT'
 }

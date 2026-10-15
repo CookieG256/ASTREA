@@ -311,7 +311,7 @@ class Sala:
 
             if dist < raio_alcance_orbe and dist > 0:
                 orbe['rect'].x += int((px - ox) / dist * velocidade_atracao)
-                orbe['rect'].y += int((py - my) / dist * velocidade_atracao)
+                orbe['rect'].y += int((py - oy) / dist * velocidade_atracao)
 
             pygame.draw.circle(tela, VERDE, orbe['rect'].center, 7)
             pygame.draw.circle(tela, BRANCO, orbe['rect'].center, 7, 1)
@@ -372,7 +372,7 @@ def desenhar_minimapa(tela, mapa_salas, sala_atual):
                 elif s.tipo == "CHEFE": cor = VERMELHO
                 elif s.tipo == "CASSINO": cor = ROXO
                 elif s.tipo == "SACRIFICIO": cor = VERMELHO
-                elif s.tipo == "BAU": cor = CIANO
+                elif s.tipo == "RECOMPENSA": cor = CIANO
                 elif s.tipo == "MIMICO": cor = (139, 69, 19)
                 pygame.draw.rect(tela, cor, (px, py, tam_quad, tam_quad), border_radius=3)
             else:
@@ -417,7 +417,7 @@ def gerar_andar():
                 elif dx == 0 and dy == -1: s1.vizinhos['NORTE'] = s2
 
     pos_ordenadas = sorted(salas.keys(), key=lambda p: abs(p[0]) + abs(p[1]))
-    tipos_especiais = ["LOJA", "CASSINO", "SACRIFICIO", "BAU", "MIMICO"]
+    tipos_especiais = ["LOJA", "CASSINO", "SACRIFICIO", "RECOMPENSA", "MIMICO"]
     random.shuffle(tipos_especiais)
 
     for idx, pos in enumerate(pos_ordenadas):

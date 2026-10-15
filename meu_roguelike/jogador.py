@@ -7,7 +7,7 @@ class Jogador:
         self.bonus_dano_percent = 0.0
         self.chance_crit = 0.05
         self.mult_crit = 1.5
-        self.defensa_percent = 0.0
+        self.defesa_percent = 0.0
         self.imortal = False
         self.tempo_imortal = 0
         self.em_dash = False
