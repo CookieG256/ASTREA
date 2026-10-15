@@ -9,24 +9,27 @@ BRANCO = (240, 240, 240)
 CINZA = (50, 50, 60)
 CINZA_CLARO = (140, 140, 150)
 VERMELHO = (230, 50, 50)
+VERMELHO_ESCURO = (130, 10, 10)
 VERDE = (50, 220, 100)
 AZUL = (50, 120, 230)
 AMARELO = (240, 200, 50)
 ROXO = (160, 60, 240)
 CIANO = (0, 255, 255)
 VERDE_CLARO = (150, 255, 150)
+LARANJA = (255, 140, 0)
 
 RARIDADE_CORES = {
-    "Comum": (150, 150, 150),
+    "Comum": (160, 160, 160),
     "Épico": (160, 60, 240),
     "Lendário": (240, 200, 50),
     "Mítico": (230, 50, 50)
 }
 
 pygame.font.init()
-FONTE_SYS = pygame.font.SysFont("arial", 16, bold=True)
+FONTE_SYS = pygame.font.SysFont("arial", 15, bold=True)
 FONTE_PEQUENA = pygame.font.SysFont("arial", 12, bold=True)
 FONTE_GRANDE = pygame.font.SysFont("arial", 32, bold=True)
+FONTE_TITULO = pygame.font.SysFont("impact", 42)
 
 BIOMAS_ESTETICA = {
     1: {"nome": "Campo Verdejante", "piso": (40, 90, 40), "parede": (20, 60, 20)},
@@ -45,5 +48,6 @@ CONFIG_JOGO = {
     'modo_tiro': 'AUTOMATICO', 
     'volume_sfx': 80,
     'volume_musica': 50,
-    'modo_dificuldade': 'CASUAL'
+    'modo_dificuldade': 'CASUAL',
+    'idioma': 'PT'
 }

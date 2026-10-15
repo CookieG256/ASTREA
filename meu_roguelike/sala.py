@@ -4,6 +4,7 @@ import pygame
 import math
 from config import LARGURA, ALTURA, VERMELHO, AZUL, AMARELO, BRANCO, CINZA, CINZA_CLARO, VERDE, PRETO, ROXO, CIANO, RARIDADE_CORES, CONFIG_JOGO, FONTE_SYS, FONTE_GRANDE
 from save import carregar_dados, salvar_dados
+from banco_itens import TODAS_ARMAS
 
 POOL_ITENS_LOJA = [
     {"nome": "Pistola Plasma", "tipo": "equip_arma", "tipo_arma": "ranged", "dano": 20, "cadencia": 250, "raridade": "Comum", "custo": 100},
@@ -43,23 +44,75 @@ class Sala:
 
     def revelar(self):
         self.revelada = True
-        if self.tipo == "LOJA" and not self.itens_ofertados:
-            self.itens_ofertados = random.sample(POOL_ITENS_LOJA, min(5, len(POOL_ITENS_LOJA)))
-            self.loja_comprados = [False] * len(self.itens_ofertados)
-        elif self.tipo == "BAU" and not self.baus:
+        
+        # --- SALA DE RECOMPENSA ---
+        if self.tipo == "RECOMPENSA" and not self.baus:
             self.baus = [
-                {"rect": pygame.Rect(LARGURA//2 - 60, ALTURA//2 - 20, 40, 40), "aberto": False},
-                {"rect": pygame.Rect(LARGURA//2 + 20, ALTURA//2 - 20, 40, 40), "aberto": False}
+                {"tipo": "moedas", "valor": 100, "rect": pygame.Rect(LARGURA//2 - 150, ALTURA//2, 60, 60), "aberto": False},
+                {"tipo": "buff", "valor": "Dano Extra", "rect": pygame.Rect(LARGURA//2 + 90, ALTURA//2, 60, 60), "aberto": False}
             ]
-        elif self.tipo == "MIMICO" and not self.inimigos:
-            # Baú falso que vira mímico
-            self.inimigos.append({
-                'tipo': 'mimico',
-                'rect': pygame.Rect(LARGURA//2 - 20, ALTURA//2 - 20, 40, 40),
-                'hp': 80,
-                'hp_max': 80
-            })
-            self.limpa = False
+        
+        # --- SALA DO MÍMICO (Dois baús: um bom, um mímico) ---
+        elif self.tipo == "MIMICO_SALA" and not self.baus:
+            # Sorteia qual dos dois vai ser o mímico verdadeiro
+            eh_mimico_direito = random.choice([True, False])
+            self.baus = [
+                {"tipo": "mimico" if not eh_mimico_direito else "recompensa", "rect": pygame.Rect(LARGURA//2 - 150, ALTURA//2, 60, 60), "aberto": False},
+                {"tipo": "mimico" if eh_mimico_direito else "recompensa", "rect": pygame.Rect(LARGURA//2 + 90, ALTURA//2, 60, 60), "aberto": False}
+            ]
+    def desenhar_baus(self, tela):
+        if hasattr(self, 'baus'):
+            for bau in self.baus:
+                if not bau["aberto"]:
+                    # Desenha o baú (dourado) na tela
+                    pygame.draw.rect(tela, (218, 165, 32), bau["rect"])
+
+    def revelar(self):
+        self.revelada = True
+        if self.tipo == "LOJA" and not self.itens_ofertados:
+            self.itens_ofertados = []
+            
+            # Queremos exatamente 5 itens sorteados para a vitrine
+            while len(self.itens_ofertados) < 5:
+                # Sorteio de 0.0 a 100.0 para definir a raridade do slot
+                roll = random.uniform(0, 100)
+                
+                if roll <= 1.0: # 1% Mítico
+                    raridade_alvo = "Mítico"
+                elif roll <= 6.0: # 5% Lendário (acumulado de 1.0 a 6.0)
+                    raridade_alvo = "Lendário"
+                elif roll <= 21.0: # 15% Épico (6.0 a 21.0)
+                    raridade_alvo = "Épico"
+                elif roll <= 51.0: # 30% Raro (21.0 a 51.0)
+                    raridade_alvo = "Raro"
+                elif roll <= 81.0: # 30% Incomum
+                    raridade_alvo = "Incomum"
+                else: # Restante para Comum
+                    raridade_alvo = "Comum"
+                
+                # Filtra todas as armas do banco_itens que têm a raridade sorteada
+                candidatos = [arma for arma in TODAS_ARMAS if arma.get('raridade') == raridade_alvo]
+                
+                if candidatos:
+                    escolhido = random.choice(candidatos)
+                    # Evita colocar armas repetidas na mesma loja
+                    if escolhido not in self.itens_ofertados:
+                        # Garante que o item possui o campo "tipo" exigido pela loja
+                        item_loja = escolhido.copy()
+                        item_loja["tipo"] = "equip_arma"
+                        # Preço proporcional ao dano e raridade
+                        item_loja["custo"] = item_loja.get("custo", int(item_loja["dano"] * 4 + 20))
+                        
+                        self.itens_ofertados.append(item_loja)
+                else:
+                    # Fallback de segurança se não houver armas na raridade sorteada
+                    escolhido = random.choice(TODAS_ARMAS).copy()
+                    escolhido["tipo"] = "equip_arma"
+                    escolhido["custo"] = int(escolhido["dano"] * 4 + 20)
+                    if escolhido not in self.itens_ofertados:
+                        self.itens_ofertados.append(escolhido)
+
+            self.loja_comprados = [False] * len(self.itens_ofertados)
 
     def spawnar_boss_direto(self):
         self.inimigos.clear()
@@ -212,7 +265,16 @@ class Sala:
                 txt_feito = FONTE_SYS.render("Altar finalizado. Você pode sair da sala.", True, CINZA_CLARO)
                 tela.blit(txt_feito, (LARGURA//2 - txt_feito.get_width()//2, 210))
 
-    def desenhar_inimigos_e_moedas(self, tela, player, particulas=None):
+# --- Certifica-te de que está indentado dentro da classe Sala ---
+    def desenhar_inimigos_e_moedas(self, tela, player, particulas=None, estatisticas_run=None):
+        for inimigo in self.inimigos:
+            if 'x' in inimigo and 'y' in inimigo:
+                pos_x, pos_y = int(inimigo['x']), int(inimigo['y'])
+            elif 'rect' in inimigo:
+                pos_x, pos_y = inimigo['rect'].centerx, inimigo['rect'].centery
+            else:
+                continue
+            pygame.draw.circle(tela, (255, 0, 0), (pos_x, pos_y), 12)
         velocidade_atracao = 12.0 if self.limpa else 4.0
         raio_alcance = 9999 if self.limpa else 70
 

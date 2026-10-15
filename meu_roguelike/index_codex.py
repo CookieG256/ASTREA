@@ -1,49 +1,75 @@
 # index_codex.py
 import pygame
-from config import LARGURA, ALTURA, PRETO, AMARELO, CINZA, CINZA_CLARO, VERMELHO, BRANCO, VERDE_CLARO, FONTE_GRANDE, FONTE_SYS, FONTE_PEQUENA
+from config import LARGURA, ALTURA, BRANCO, PRETO, CINZA, AMARELO, ROXO, FONTE_SYS, FONTE_GRANDE
+from banco_itens import TODAS_ARMAS, TODOS_AMULETOS, CORES_RARIDADE
+from save import carregar_dados
+from idiomas import t
 
 class TelaIndexCodex:
     def __init__(self):
-        self.botao_voltar = pygame.Rect(LARGURA//2 - 100, 500, 200, 40)
+        self.btn_voltar = pygame.Rect(LARGURA//2 - 100, 520, 200, 40)
+        self.scroll_y = 0
+        self.max_scroll = 0
 
-    def desenhar(self, tela, dados_descobertas, pos_mouse):
-        s_overlay = pygame.Surface((LARGURA, ALTURA))
-        s_overlay.set_alpha(220)
-        s_overlay.fill(PRETO)
-        tela.blit(s_overlay, (0, 0))
+    def desenhar(self, tela, pos_mouse, config_jogo):
+        tela.fill(PRETO)
+        dados = carregar_dados()
+        descobertas = dados.get('index_descobertas', {})
+        lang = config_jogo.get('idioma', 'PT')
 
-        txt_titulo = FONTE_GRANDE.render("INDEX / ENCICLOPÉDIA", True, AMARELO)
-        tela.blit(txt_titulo, (LARGURA//2 - txt_titulo.get_width()//2, 50))
+        # Título limpo e traduzido
+        txt_t = FONTE_GRANDE.render(t("titulo_index", lang), True, AMARELO)
+        tela.blit(txt_t, (LARGURA//2 - txt_t.get_width()//2, 15))
 
-        y_pos = 120
-        itens_exemplo = [
-            {"nome": "Moeda da Sorte", "desc": "+15% de ouro ganho", "id": "moeda_sorte"},
-            {"nome": "Anel de Fogo", "desc": "Tiros aplicam queimadura", "id": "anel_fogo"},
-            {"nome": "Coração de Dragão", "desc": "Revive 1 vez por run", "id": "coracao_dragao"}
-        ]
+        todos_itens = TODAS_ARMAS + TODOS_AMULETOS
+        
+        altura_total = len(todos_itens) * 52
+        self.max_scroll = min(0, -(altura_total - 380))
 
-        for item in itens_exemplo:
-            descoberto = dados_descobertas.get('artefatos', {}).get(item['id'], False)
-            cor_caixa = CINZA if descoberto else (30, 30, 35)
-            pygame.draw.rect(tela, cor_caixa, (150, y_pos, 500, 50), border_radius=6)
+        y_pos = 75 + self.scroll_y
+        for item in todos_itens:
+            if 65 <= y_pos <= 500:
+                rect_card = pygame.Rect(LARGURA//2 - 230, y_pos, 460, 45)
+                cor_card = (60, 60, 65) if rect_card.collidepoint(pos_mouse) else CINZA
+                pygame.draw.rect(tela, cor_card, rect_card, border_radius=8)
 
-            if descoberto:
-                txt_nome = FONTE_SYS.render(item['nome'], True, BRANCO)
-                txt_desc = FONTE_PEQUENA.render(item['desc'], True, VERDE_CLARO)
-                tela.blit(txt_nome, (170, y_pos + 8))
-                tela.blit(txt_desc, (170, y_pos + 28))
-            else:
-                txt_bloq = FONTE_SYS.render("??? (Item Desconhecido)", True, CINZA_CLARO)
-                tela.blit(txt_bloq, (170, y_pos + 15))
+                nome = item['nome']
+                desc = item.get('desc', '')
+                raridade = item.get('raridade', 'Comum')
+                cor_raridade = CORES_RARIDADE.get(raridade, BRANCO)
 
-            y_pos += 65
+                if descobertas.get(nome, False):
+                    txt_nome = FONTE_SYS.render(f"{nome} [{raridade}]", True, cor_raridade)
+                    txt_desc = FONTE_SYS.render(desc, True, BRANCO)
+                else:
+                    txt_nome = FONTE_SYS.render("??? (Item Desconhecido)", True, BRANCO)
+                    txt_desc = FONTE_SYS.render("Encontre este item em uma run para desbloquear.", True, CINZA)
 
-        cor_v = VERMELHO if self.botao_voltar.collidepoint(pos_mouse) else CINZA
-        pygame.draw.rect(tela, cor_v, self.botao_voltar, border_radius=6)
-        txt_v = FONTE_SYS.render("Voltar ao Lobby", True, BRANCO)
-        tela.blit(txt_v, (self.botao_voltar.centerx - txt_v.get_width()//2, self.botao_voltar.centery - txt_v.get_height()//2))
+                tela.blit(txt_nome, (rect_card.x + 12, rect_card.y + 5))
+                tela.blit(txt_desc, (rect_card.x + 12, rect_card.y + 24))
+
+            y_pos += 52
+
+        cor_v = AMARELO if self.btn_voltar.collidepoint(pos_mouse) else CINZA
+        pygame.draw.rect(tela, cor_v, self.btn_voltar, border_radius=6)
+        txt_v = FONTE_SYS.render(t("voltar_lobby", lang), True, PRETO if cor_v == AMARELO else BRANCO)
+        tela.blit(txt_v, (self.btn_voltar.centerx - txt_v.get_width()//2, self.btn_voltar.centery - txt_v.get_height()//2))
+
+    def tratar_evento(self, evento, pos_mouse):
+        if evento.type == pygame.MOUSEWHEEL:
+            self.scroll_y += evento.y * 30
+            if self.scroll_y > 0:
+                self.scroll_y = 0
+            if self.scroll_y < self.max_scroll:
+                self.scroll_y = self.max_scroll
+
+        if evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
+            if self.btn_voltar.collidepoint(pos_mouse):
+                return "VOLTAR_LOBBY"
+                
+        return None
 
     def tratar_clique(self, pos_mouse):
-        if self.botao_voltar.collidepoint(pos_mouse):
+        if self.btn_voltar.collidepoint(pos_mouse):
             return "VOLTAR_LOBBY"
         return None

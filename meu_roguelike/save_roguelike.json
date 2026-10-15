@@ -1,5 +1,5 @@
 {
-    "gemas": 10,
+    "gemas": 0,
     "index_descobertas": {
         "armas": {
             "pistola": true
@@ -9,5 +9,8 @@
         },
         "mobs": {}
     },
-    "conquistas": {}
+    "conquistas": {},
+    "upgrades_nivel": {
+        "hp_max": 1
+    }
 }

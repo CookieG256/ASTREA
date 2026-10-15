@@ -4,6 +4,13 @@ from config import ROXO, LARGURA, ALTURA
 
 class Jogador:
     def __init__(self, x, y, bonus_hp=0, bonus_mana=0):
+        self.bonus_dano_percent = 0.0
+        self.chance_crit = 0.05
+        self.mult_crit = 1.5
+        self.defensa_percent = 0.0
+        self.imortal = False
+        self.tempo_imortal = 0
+        self.em_dash = False
         self.rect = pygame.Rect(x, y, 30, 30)
         self.vel_base = 5
         self.hp_max = 200 + bonus_hp
