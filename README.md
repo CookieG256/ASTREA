@@ -9,7 +9,7 @@
 
 ## 🇧🇷 Português
 
-**ASTREA** é um jogo roguelike feito sozinho e com ajuda do Co Pilot do GitHub, desenvolvido em Python.
+**ASTREA** é um jogo roguelike feito sozinho e com ajuda do CoPilot do GitHub, desenvolvido em Python.
 
 ### 🚀 Funcionalidades
 * **Sistema de Classes e Raças:** Escolha diferentes combinações com buffs e habilidades passivas únicas para cada partida.
