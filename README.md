@@ -3,7 +3,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Comunidade-7289DA?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/zsXp6Nf6zF)
 [![GitHub Release](https://img.shields.io/badge/Release-v1.0.0-brightgreen?style=for-the-badge)](https://github.com/CookieG256/ASTREA/releases)
 
-[🇧🇷 Português](#-português) | [🇺🇸 English](#-english)
+[🇧🇷 Português](#-português) | [🇺🇸 English](#-english) | [🇪🇸 Español ](#-español)
 
 ---
 
@@ -38,3 +38,18 @@ Head over to the [Releases](https://github.com/CookieG256/ASTREA/releases) page 
 
 ### 💬 Community
 Join our official community on Discord: [ASTREA Discord](https://discord.gg/zsXp6Nf6zF).
+
+## 🇪🇸 Español
+
+**ASTREA** es un juego roguelike desarrollado solo utilizando Python.
+
+### 🚀 Características
+* **Sistema de clases y razas:** Elige diferentes combinaciones con mejoras buffs y habilidades pasivas únicas para cada partida.
+* **Multiplataforma:** El juego está compilado y disponible de forma nativa para Windows, macOS y Linux.
+* **Multijugador local:** El juego cuenta con modo multijugador local y es compatible tanto con mando como con teclado.
+
+### 📥 Cómo jugar
+Accede a la sección de [Releases](https://github.com/CookieG256/ASTREA/releases) para descargar el ejecutable compatible con tu sistema operativo.
+
+### 💬 Comunidad
+Únete a nuestra comunidad oficial en Discord: [Discord de ASTREA](https://discord.gg/zsXp6Nf6zF).
