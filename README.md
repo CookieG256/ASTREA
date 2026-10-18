@@ -1,4 +1,4 @@
-# ASTREA V1.0.0
+# ASTREA v1.0.0
 
 ASTREA é um roguelike desenvolvido em Python com Pygame.
 
