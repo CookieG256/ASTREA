@@ -1,6 +1,6 @@
 # menu_pausa.py
 import pygame
-from config import LARGURA, ALTURA, BRANCO, PRETO, CINZA, AMARELO, VERDE, VERMELHO, FONTE_SYS, FONTE_GRANDE
+from config import LARGURA, ALTURA, BRANCO, PRETO, CINZA, AMARELO, VERMELHO, FONTE_SYS, FONTE_GRANDE
 from idiomas import t
 
 class MenuPausa:
@@ -25,6 +25,11 @@ class MenuPausa:
         txt_ret = FONTE_SYS.render(t("retomar", lang), True, PRETO if cor_ret == BRANCO else BRANCO)
         tela.blit(txt_ret, (self.btn_retomar.centerx - txt_ret.get_width()//2, self.btn_retomar.centery - txt_ret.get_height()//2))
 
+        cor_lob = BRANCO if self.btn_config.collidepoint(pos_mouse) else CINZA
+        pygame.draw.rect(tela, cor_lob, self.btn_config, border_radius=6)
+        txt_lob = FONTE_SYS.render(t("configuracoes", lang), True, PRETO if cor_lob == BRANCO else BRANCO)
+        tela.blit(txt_lob, (self.btn_config.centerx - txt_lob.get_width()//2, self.btn_config.centery - txt_lob.get_height()//2))
+
         cor_lob = BRANCO if self.btn_lobby.collidepoint(pos_mouse) else CINZA
         pygame.draw.rect(tela, cor_lob, self.btn_lobby, border_radius=6)
         txt_lob = FONTE_SYS.render(t("voltar_lobby", lang), True, PRETO if cor_lob == BRANCO else BRANCO)
@@ -38,6 +43,8 @@ class MenuPausa:
     def tratar_clique(self, pos_mouse):
         if self.btn_retomar.collidepoint(pos_mouse):
             return "RETOMAR"
+        elif self.btn_config.collidepoint(pos_mouse):
+            return "CONFIGURACOES"
         elif self.btn_lobby.collidepoint(pos_mouse):
             return "LOBBY"
         elif self.btn_sair.collidepoint(pos_mouse):

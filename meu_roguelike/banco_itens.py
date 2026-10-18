@@ -1,16 +1,16 @@
 # banco_itens.py
 import random
-from config import RARIDADE_CORES, BRANCO, CINZA, VERDE, ROXO, AMARELO, VERMELHO, CIANO, LARANJA, AZUL, PRETO
+from config import BRANCO, VERDE, ROXO, AMARELO, AZUL, VERMELHO_ESCURO
 from save import carregar_dados, salvar_dados
 
 # Cores por Raridade
 CORES_RARIDADE = {
-    "Comum": CINZA,
+    "Comum": BRANCO,
     "Incomum": VERDE,
     "Raro": AZUL,
     "Épico": ROXO,
     "Lendário": AMARELO,
-    "Mítico": VERMELHO
+    "Mítico": VERMELHO_ESCURO,
 }
 
 # --- DICIONÁRIO COMPLETO DE ARMAS (174 Armas) ---
@@ -182,6 +182,14 @@ TODAS_ARMAS = [
     {"nome": "Cajado do Mago de Batalha", "tipo_arma": "mage", "raridade": "Raro", "dano": 42, "cadencia": 380, "desc": "Poder devastador de área."},
     {"nome": "Orbe de Gravidade Zero", "tipo_arma": "mage", "raridade": "Raro", "dano": 36, "cadencia": 290, "desc": "Empurra inimigos para longe."},
 
+    # === ÉPICAS ===
+    {"nome": "Espada do Guardião Lunar", "tipo_arma": "melee", "raridade": "Épico", "dano": 62, "cadencia": 300, "desc": "A lâmina prateada corta as sombras ao redor."},
+    {"nome": "Machado de Guerra do Titã", "tipo_arma": "melee", "raridade": "Épico", "dano": 72, "cadencia": 520, "desc": "Um golpe pesado que estremece o chão."},
+    {"nome": "Arco do Caçador Celeste", "tipo_arma": "ranged", "raridade": "Épico", "dano": 58, "cadencia": 250, "desc": "Flechas luminosas perseguem os alvos."},
+    {"nome": "Besta do Raio Arcano", "tipo_arma": "ranged", "raridade": "Épico", "dano": 68, "cadencia": 420, "desc": "Virotes carregados de energia elétrica."},
+    {"nome": "Cajado da Tempestade", "tipo_arma": "mage", "raridade": "Épico", "dano": 60, "cadencia": 280, "desc": "Invoca relâmpagos que atravessam a arena."},
+    {"nome": "Grimório das Chamas Eternas", "tipo_arma": "mage", "raridade": "Épico", "dano": 66, "cadencia": 330, "desc": "Conjura fogo arcano contra os inimigos."},
+
     # === LENDÁRIAS (6 Melee, 6 Ranged, 6 Mage) ===
     {"nome": "Lâmina do Sol Nascente", "tipo_arma": "melee", "raridade": "Lendário", "dano": 75, "cadencia": 250, "desc": "Corta o ar com chamas solares puras."},
     {"nome": "Ceifadora de Almas de Titã", "tipo_arma": "melee", "raridade": "Lendário", "dano": 95, "cadencia": 480, "desc": "Rouba vida e absorve almas dos mortos."},
@@ -209,6 +217,10 @@ TODAS_ARMAS = [
     {"nome": "Arco do Cosmos Infinito", "tipo_arma": "ranged", "raridade": "Mítico", "dano": 140, "cadencia": 160, "desc": "Flechas teleguiadas infinitas de pura energia cósmica."},
     {"nome": "Cajado do Arquiteto Universal", "tipo_arma": "mage", "raridade": "Mítico", "dano": 145, "cadencia": 170, "desc": "Manipula o tecido do universo para aniquilar qualquer ameaça."}
 ]
+
+# Base damage is deliberately lower so room upgrades and enchantments remain valuable.
+for _arma in TODAS_ARMAS:
+    _arma["dano"] = max(3, int(round(_arma["dano"] * 0.85)))
 
 # --- DICIONÁRIO COMPLETO DE AMULETOS (46 Amuletos) ---
 TODOS_AMULETOS = [
@@ -318,15 +330,20 @@ SETS_ARMADURAS = {
 def registrar_item_no_index(nome_item):
     """Registra o item descoberto no save permanentemente"""
     dados = carregar_dados()
-    if 'index_descobertas' not in dados:
-        dados['index_descobertas'] = {}
-    
-    if not dados['index_descobertas'].get(nome_item, False):
-        dados['index_descobertas'][nome_item] = True
+    descobertas = dados.get("index_descobertas")
+    if not isinstance(descobertas, dict):
+        descobertas = {}
+        dados["index_descobertas"] = descobertas
+    itens = descobertas.get("itens")
+    if not isinstance(itens, dict):
+        itens = {}
+        descobertas["itens"] = itens
+    if not itens.get(nome_item, False):
+        itens[nome_item] = True
         salvar_dados(dados)
 
 def sortear_item(raridade_desejada=None):
-    """Sorteia um item aleatório com base na raridade e grava no Index ao pegar"""
+    """Sorteia um item aleatório com base na raridade."""
     if not raridade_desejada:
         raridade_desejada = random.choices(
             ["Comum", "Incomum", "Raro", "Épico", "Lendário", "Mítico"],
@@ -338,5 +355,4 @@ def sortear_item(raridade_desejada=None):
         opcoes = TODAS_ARMAS
 
     item_sorteado = random.choice(opcoes).copy()
-    registrar_item_no_index(item_sorteado['nome'])
     return item_sorteado

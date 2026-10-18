@@ -1,10 +1,8 @@
-# Astrea 🎮
+# ASTREA V1.0.0
 
-[![Discord](https://img.shields.io/badge/Discord-Comunidade-7289DA?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/zsXp6Nf6zF)
+ASTREA é um roguelike desenvolvido em Python com Pygame.
 
-An independent hardcore Roguelike game built from scratch using Python. Follow the development journey, test out the builds, and help me achieve the dream of launching a successful indie game on Steam.
-
-## 🛠️ Built With
-- Python
-- PyGame
-- VSCode
+- **Baixar:** acesse [Releases](https://github.com/CookieG256/ASTREA/releases) para baixar a versão para Windows, macOS ou Linux.
+- **Comunidade:** [Discord do ASTREA](https://discord.gg/zsXp6Nf6zF).
+- **Código do jogo:** [meu_roguelike/](./meu_roguelike/).
+- **Compilação e publicação:** consulte [BUILDING.md](./meu_roguelike/BUILDING.md).

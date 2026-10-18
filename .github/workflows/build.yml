@@ -1,0 +1,62 @@
+name: Build ASTREA
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: ASTREA-Windows
+          - os: macos-latest
+            artifact: ASTREA-macOS
+          - os: ubuntu-latest
+            artifact: ASTREA-Linux
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: meu_roguelike
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install build dependencies
+        run: python -m pip install -r requirements-build.txt
+      - name: Build application
+        run: python build_game.py
+      - name: Upload downloadable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: meu_roguelike/dist/ASTREA-*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download platform builds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ASTREA-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ASTREA ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release-assets/ASTREA-*

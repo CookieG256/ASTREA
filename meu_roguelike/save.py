@@ -21,6 +21,8 @@ def carregar_dados():
         "index_descobertas": {
             "armas": {"pistola": True},
             "artefatos": {"moeda_sorte": True},
+            "itens": {},
+            "inimigos": {},
             "mobs": {}
         }
     }
