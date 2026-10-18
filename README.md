@@ -9,7 +9,7 @@
 
 ## 🇧🇷 Português
 
-**ASTREA** é um jogo roguelike feito sozinho e desenvolvido em Python.
+**ASTREA** é um jogo roguelike feito sozinho e com ajuda do Co Pilot do GitHub, desenvolvido em Python.
 
 ### 🚀 Funcionalidades
 * **Sistema de Classes e Raças:** Escolha diferentes combinações com buffs e habilidades passivas únicas para cada partida.
@@ -26,7 +26,7 @@ Junte-se à nossa comunidade oficial no Discord: [Discord do ASTREA](https://dis
 
 ## 🇺🇸 English
 
-**ASTREA** is a roguelike game created by a solo developer and built using Python.
+**ASTREA** is a roguelike game created by a solo developer and with the help of GitHub Copilot, built using Python.
 
 ### 🚀 Features
 * **Classes & Races System:** Choose different combinations featuring unique buffs and passive abilities for every run.
@@ -41,7 +41,7 @@ Join our official community on Discord: [ASTREA Discord](https://discord.gg/zsXp
 
 ## 🇪🇸 Español
 
-**ASTREA** es un juego roguelike desarrollado solo utilizando Python.
+**ASTREA** es un juego roguelike desarrollado solo y con la ayuda de GitHub Copilot, utilizando Python.
 
 ### 🚀 Características
 * **Sistema de clases y razas:** Elige diferentes combinaciones con mejoras buffs y habilidades pasivas únicas para cada partida.
