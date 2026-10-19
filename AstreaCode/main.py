@@ -1119,7 +1119,13 @@ while rodando:
                             aplicar_efeitos_encantamento(arma, inimigo, player, dano_aplicado, tempo_atual)
                             acertou_critico = acertou_critico or eh_crit
                             particulas.criar_explosao(inimigo['rect'].centerx, inimigo['rect'].centery, AMARELO)
-                            particulas.criar_texto_dano(inimigo['rect'].centerx, inimigo['rect'].y - 10, f"-{dano_aplicado}!" if eh_crit else f"-{dano_aplicado}", VERMELHO if eh_crit else BRANCO, eh_crit)
+                            particulas.criar_texto_dano(
+                                inimigo['rect'].centerx,
+                                inimigo['rect'].y - 10,
+                                f"-{dano_aplicado}!" if eh_crit else f"-{dano_aplicado}",
+                                VERMELHO if eh_crit else BRANCO,
+                                eh_crit,
+                            )
                     cura_sinergia = curar_por_sinergia_critica(player, acertou_critico)
                     if cura_sinergia:
                         particulas.criar_texto_dano(
@@ -1287,19 +1293,33 @@ while rodando:
             registrar_progresso(carregar_dados(), "salas")
             if sala_atual.sem_dano and not sala_atual.recompensa_sem_dano_concedida:
                 sala_atual.recompensa_sem_dano_concedida = True
-                player.ganhar_ouro(25)
+                multiplicador_recompensas = getattr(
+                    player, "multiplicador_recompensas", 1.0
+                )
+                ouro_bonus = player.ganhar_ouro(25)
+                gemas_bonus = arredondar_para_5(
+                    5
+                    * getattr(player, "multiplicador_gemas", 1.0)
+                    * multiplicador_recompensas
+                )
                 dados_recompensa = carregar_dados()
-                dados_recompensa["gemas"] = dados_recompensa.get("gemas", 0) + 5
+                dados_recompensa["gemas"] = (
+                    dados_recompensa.get("gemas", 0) + gemas_bonus
+                )
                 salvar_dados(dados_recompensa)
                 estatisticas_run["gemas_coletadas"] = (
-                    estatisticas_run.get("gemas_coletadas", 0) + 5
+                    estatisticas_run.get("gemas_coletadas", 0) + gemas_bonus
                 )
                 estatisticas_run["salas_sem_dano"] = (
                     estatisticas_run.get("salas_sem_dano", 0) + 1
                 )
                 particulas.criar_texto_dano(
                     player.rect.centerx, player.rect.y - 28,
-                    t("recompensa_sem_dano", lang), DOURADO_UI, True,
+                    t("recompensa_sem_dano", lang).format(
+                        ouro=ouro_bonus, gemas=gemas_bonus
+                    ),
+                    DOURADO_UI,
+                    True,
                 )
 
         for jogador_morto in [alvo for alvo in (player, player2) if alvo and alvo.hp <= 0]:

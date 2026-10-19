@@ -240,8 +240,7 @@ class GerenciadorInimigos:
             ix, iy = r.center
             dist = math.hypot(px - ix, py - iy)
 
-            if inimigo.get("elite"):
-                mult_velocidade *= inimigo.get("multiplicador_velocidade", 1.0)
+            mult_velocidade *= inimigo.get("multiplicador_velocidade", 1.0)
 
             if tipo == 'boss':
                 hp_max = inimigo['hp_max']

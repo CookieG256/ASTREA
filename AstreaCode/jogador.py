@@ -5,6 +5,7 @@ from save import carregar_dados
 from banco_itens import TODAS_ARMAS
 from personagens import ARMAS_INICIAIS, RACES_AND_CLASSES, stats_selecao
 from cosmeticos import COSMETICOS, COSMETICO_PADRAO, obtener_cosmeticos_equipados
+from modificadores import calcular_efeitos_modificadores
 
 
 def configurar_municao_arma(arma):
@@ -178,13 +179,10 @@ class Jogador:
                 self.equipado_arma = dict(arma_inicial, tipo="equip_arma")
                 configurar_municao_arma(self.equipado_arma)
         modificadores_run = CONFIG_JOGO.get("modificadores_run", [])
-        self.multiplicador_recompensas = (
-            (1.5 if "vidro" in modificadores_run else 1.0)
-            * (1.3 if "horda" in modificadores_run else 1.0)
-        )
-        self.multiplicador_dano_recebido_run = (
-            1.5 if "vidro" in CONFIG_JOGO.get("modificadores_run", []) else 1.0
-        )
+        efeitos_modificadores = calcular_efeitos_modificadores(modificadores_run)
+        self.multiplicador_recompensas = efeitos_modificadores["recompensas"]
+        self.multiplicador_dano_recebido_run = efeitos_modificadores["dano_recebido"]
+        self.multiplicador_cura_orbes_run = efeitos_modificadores["cura_orbes"]
         self.dano_recebido_total = 0
         self.evento_bioma_ativo = None
         self.mochila_itens = []
@@ -228,7 +226,12 @@ class Jogador:
     def ganhar_ouro(self, quantidade):
         bonus = getattr(self, "pet_bonus_ouro", 0.0) + self.bonus_ouro_permanente
         mult_recompensa = getattr(self, "multiplicador_recompensas", 1.0)
-        self.ouro += max(0, arredondar_para_5(quantidade * (1.0 + bonus) * mult_recompensa))
+        ouro_recebido = max(
+            0,
+            arredondar_para_5(quantidade * (1.0 + bonus) * mult_recompensa),
+        )
+        self.ouro += ouro_recebido
+        return ouro_recebido
 
     def executar_dash(self, teclas, tempo_atual, controles=None):
         if tempo_atual - self.ultimo_dash > self.cooldown_dash and not self.em_dash:

@@ -9,10 +9,29 @@ from save import carregar_dados, salvar_dados
 from idiomas import t
 from loja_pets import LojaPets
 from registros_run import obter_melhores_runs_por_dificuldade
-from personagens import ARMAS_INICIAIS, RACES_AND_CLASSES, STAT_LABELS, stats_selecao
+from personagens import ARMAS_INICIAIS, RACES_AND_CLASSES, stats_selecao
 from narrativa import NPCS, nivel_reputacao
 from cosmeticos import COSMETICOS, COSMETICO_PADRAO, desbloquear_cosmetico
 from version import VERSION
+from modificadores import MODIFICADORES_RUN
+
+
+def _quebrar_texto(texto, fonte, largura_maxima, max_linhas=None):
+    linhas = []
+    linha_atual = ""
+    for palavra in texto.split():
+        candidata = f"{linha_atual} {palavra}".strip()
+        if linha_atual and fonte.size(candidata)[0] > largura_maxima:
+            linhas.append(linha_atual)
+            linha_atual = palavra
+            if max_linhas and len(linhas) >= max_linhas:
+                linhas[-1] = linhas[-1].rstrip(" .") + "…"
+                return linhas
+        else:
+            linha_atual = candidata
+    if linha_atual:
+        linhas.append(linha_atual)
+    return linhas
 
 
 def draw_icon_button(surface, rect, color, icon_text_or_image, hover_state, tooltip="", font=None):
@@ -81,8 +100,18 @@ class MenuInicial:
         self.btn_cosmetico_p2 = pygame.Rect(LARGURA // 2 + 10, 175, 145, 36)
         self.btn_voltar_cosmeticos = pygame.Rect(LARGURA // 2 - 110, ALTURA - 58, 220, 38)
         self.modificadores_run = set()
-        self.btn_mod_vidro = pygame.Rect(LARGURA // 2 - 225, 445, 215, 34)
-        self.btn_mod_horda = pygame.Rect(LARGURA // 2 + 10, 445, 215, 34)
+        largura_modificador = 270
+        espaco_modificador = 12
+        inicio_modificadores = (LARGURA - (largura_modificador * 3 + espaco_modificador * 2)) // 2
+        self.botoes_modificadores = {
+            chave: pygame.Rect(
+                inicio_modificadores + (indice % 3) * (largura_modificador + espaco_modificador),
+                445 + (indice // 3) * 57,
+                largura_modificador,
+                52,
+            )
+            for indice, chave in enumerate(MODIFICADORES_RUN)
+        }
         self.btn_voltar_npcs = pygame.Rect(LARGURA // 2 - 110, ALTURA - 58, 220, 38)
         self.rects_racas = {}
         self.rects_classes = {}
@@ -225,16 +254,69 @@ class MenuInicial:
                     pygame.draw.rect(tela, cor_base, btn, 2 if hovered else 1, border_radius=8)
                     txt = FONTE_SYS.render(t(chave_txt, lang), True, DOURADO_UI if hovered else BRANCO)
                     tela.blit(txt, (btn.centerx - txt.get_width()//2, btn.centery - txt.get_height()//2))
-                for rect, chave, modificador in (
-                    (self.btn_mod_vidro, "modificador_vidro", "vidro"),
-                    (self.btn_mod_horda, "modificador_horda", "horda"),
-                ):
+                titulo_modificadores = FONTE_PEQUENA.render(
+                    t("modificadores_titulo", lang), True, DOURADO_UI
+                )
+                tela.blit(
+                    titulo_modificadores,
+                    (LARGURA // 2 - titulo_modificadores.get_width() // 2, 424),
+                )
+                modificador_hover = None
+                for modificador, rect in self.botoes_modificadores.items():
                     ativo = modificador in self.modificadores_run
                     hover = rect.collidepoint(pos_mouse)
-                    pygame.draw.rect(tela, PAINEL_UI_CLARO if hover or ativo else PAINEL_UI, rect, border_radius=7)
-                    pygame.draw.rect(tela, ROXO_UI if ativo else BORDA_UI, rect, 2 if ativo else 1, border_radius=7)
-                    label = FONTE_PEQUENA.render(t(chave, lang), True, DOURADO_UI if ativo else BRANCO)
-                    tela.blit(label, (rect.centerx - label.get_width() // 2, rect.centery - label.get_height() // 2))
+                    if hover:
+                        modificador_hover = (modificador, rect)
+                    pygame.draw.rect(
+                        tela,
+                        PAINEL_UI_CLARO if hover or ativo else PAINEL_UI,
+                        rect,
+                        border_radius=7,
+                    )
+                    pygame.draw.rect(
+                        tela,
+                        ROXO_UI if ativo else BORDA_UI,
+                        rect,
+                        2 if ativo else 1,
+                        border_radius=7,
+                    )
+                    titulo = FONTE_PEQUENA.render(
+                        t(f"modificador_{modificador}", lang),
+                        True,
+                        DOURADO_UI if ativo or hover else BRANCO,
+                    )
+                    tela.blit(titulo, (rect.x + 7, rect.y + 3))
+                    descricao = t(f"modificador_{modificador}_desc", lang)
+                    linhas = _quebrar_texto(descricao, FONTE_PEQUENA, rect.width - 14, 2)
+                    for indice, linha in enumerate(linhas):
+                        texto_desc = FONTE_PEQUENA.render(linha, True, CINZA_CLARO)
+                        tela.blit(texto_desc, (rect.x + 7, rect.y + 22 + indice * 13))
+                if modificador_hover:
+                    modificador, rect = modificador_hover
+                    linhas_tooltip = _quebrar_texto(
+                        t(f"modificador_{modificador}_desc", lang),
+                        FONTE_PEQUENA,
+                        320,
+                    )
+                    largura_tooltip = max(
+                        FONTE_PEQUENA.size(linha)[0] for linha in linhas_tooltip
+                    ) + 16
+                    altura_tooltip = len(linhas_tooltip) * 16 + 12
+                    caixa_tooltip = pygame.Rect(
+                        pos_mouse[0] + 12,
+                        pos_mouse[1] - altura_tooltip - 8,
+                        largura_tooltip,
+                        altura_tooltip,
+                    )
+                    caixa_tooltip.clamp_ip(tela.get_rect())
+                    pygame.draw.rect(tela, PAINEL_UI, caixa_tooltip, border_radius=6)
+                    pygame.draw.rect(tela, DOURADO_UI, caixa_tooltip, 1, border_radius=6)
+                    for indice, linha in enumerate(linhas_tooltip):
+                        texto_tooltip = FONTE_PEQUENA.render(linha, True, BRANCO)
+                        tela.blit(
+                            texto_tooltip,
+                            (caixa_tooltip.x + 8, caixa_tooltip.y + 6 + indice * 16),
+                        )
         else:
             txt_l = FONTE_GRANDE.render(t("loja_upgrades", lang), True, CIANO_UI)
             tela.blit(txt_l, (LARGURA//2 - txt_l.get_width()//2, 20))
@@ -319,7 +401,7 @@ class MenuInicial:
                 pygame.draw.rect(tela, PAINEL_UI_CLARO if hover or ativo else FUNDO_UI, rect, border_radius=8)
                 pygame.draw.rect(tela, CIANO_UI if ativo else BORDA_UI, rect, 2 if ativo else 1, border_radius=8)
                 icone = FONTE_GRANDE.render(opcoes[nome]["icon"], True, DOURADO_UI if ativo else BRANCO)
-                label = FONTE_SYS.render(nome, True, BRANCO)
+                label = FONTE_SYS.render(t(opcoes[nome]["name_key"], lang), True, BRANCO)
                 tela.blit(icone, (rect.x + 10, rect.centery - icone.get_height() // 2))
                 tela.blit(label, (rect.x + 47, rect.centery - label.get_height() // 2))
                 if hover:
@@ -328,10 +410,17 @@ class MenuInicial:
         raca = config_jogo.get("raca_jogador", "Humano")
         classe = config_jogo.get("classe_jogador", "Guerreiro")
         stats = stats_selecao(raca, classe)
+        raca_config = RACES_AND_CLASSES["races"].get(raca, RACES_AND_CLASSES["races"]["Humano"])
+        classe_config = RACES_AND_CLASSES["classes"].get(
+            classe, RACES_AND_CLASSES["classes"]["Guerreiro"]
+        )
         linhas = (
-            f"{raca} {RACES_AND_CLASSES['races'].get(raca, RACES_AND_CLASSES['races']['Humano'])['icon']}  ·  "
-            f"{classe} {RACES_AND_CLASSES['classes'].get(classe, RACES_AND_CLASSES['classes']['Guerreiro'])['icon']}",
-            "  ".join(f"{STAT_LABELS[chave]} ×{valor:.2f}" for chave, valor in stats.items()),
+            f"{t(raca_config['name_key'], lang)} {raca_config['icon']}  ·  "
+            f"{t(classe_config['name_key'], lang)} {classe_config['icon']}",
+            "  ".join(
+                f"{t('stat_' + chave, lang)} ×{valor:.2f}"
+                for chave, valor in stats.items()
+            ),
             f"{t('arma_inicial', lang)}: {ARMAS_INICIAIS.get(classe, ARMAS_INICIAIS['Guerreiro'])}",
         )
         for indice, texto in enumerate(linhas):
@@ -512,10 +601,16 @@ class MenuInicial:
                 elif self.btn_discord.collidepoint(pos_mouse): return "ABRIR_DISCORD"
                 elif self.btn_sair.collidepoint(pos_mouse): return "SAIR"
             else:
-                if self.btn_mod_vidro.collidepoint(pos_mouse):
-                    self._alternar_modificador("vidro")
-                elif self.btn_mod_horda.collidepoint(pos_mouse):
-                    self._alternar_modificador("horda")
+                modificador_clicado = next(
+                    (
+                        chave
+                        for chave, rect in self.botoes_modificadores.items()
+                        if rect.collidepoint(pos_mouse)
+                    ),
+                    None,
+                )
+                if modificador_clicado:
+                    self._alternar_modificador(modificador_clicado)
                 elif self.btn_easy.collidepoint(pos_mouse):
                     config_jogo["modificadores_run"] = sorted(self.modificadores_run)
                     config_jogo['modo_dificuldade'] = 'EASY'; self.sub_modo = False; return "INICIAR_RUN"

@@ -13,6 +13,7 @@ from narrativa import NPCS, resgatar_npc, npc_para_reencontro, registrar_reencon
 from narrativa import nivel_reputacao
 from cosmeticos import desbloquear_cosmetico, sortear_cosmetico_bloqueado
 from missoes import registrar_progresso
+from modificadores import calcular_efeitos_modificadores
 
 
 def preco_redondo(valor, minimo=10):
@@ -325,14 +326,27 @@ class Sala:
     def spawnar_boss_direto(self, secreto=False):
         self.inimigos.clear()
         dificuldade = obter_multiplicadores_andar(self.andar)
+        efeitos_modificadores = calcular_efeitos_modificadores(
+            CONFIG_JOGO.get("modificadores_run", [])
+        )
         bioma_boss = 15 if secreto else self.bioma_id
-        hp_boss = arredondar_para_5(1100 * dificuldade['multiplicador_hp_inimigo'] * (2 if secreto else 1))
+        hp_boss = arredondar_para_5(
+            1100
+            * dificuldade['multiplicador_hp_inimigo']
+            * efeitos_modificadores["vida_inimigos"]
+            * (2 if secreto else 1)
+        )
         self.inimigos.append({
             'tipo': 'boss',
             'rect': pygame.Rect(LARGURA//2 - 40, ALTURA//2 - 40, 80, 80),
             'hp': hp_boss,
             'hp_max': hp_boss,
-            'dano_contato': arredondar_para_5(34 * dificuldade['multiplicador_dano_inimigo']),
+            'dano_contato': arredondar_para_5(
+                34
+                * dificuldade['multiplicador_dano_inimigo']
+                * efeitos_modificadores["dano_inimigos"]
+            ),
+            'multiplicador_velocidade': efeitos_modificadores["velocidade_inimigos"],
             'eh_boss': True,
             'nome': t("chefe_secreto_nome", CONFIG_JOGO.get("idioma", "PT")) if secreto else nome_chefe_localizado(self.bioma_id, CONFIG_JOGO.get("idioma", "PT")),
             'rage_ativado': False,
@@ -363,8 +377,21 @@ class Sala:
                 self.onda_atual += 1
                 qtd_mobs = random.randint(3, 5)
                 dificuldade = obter_multiplicadores_andar(self.andar)
-                mult_hp = dificuldade['multiplicador_hp_inimigo']
-                mult_dano = dificuldade['multiplicador_dano_inimigo']
+                efeitos_modificadores = calcular_efeitos_modificadores(
+                    CONFIG_JOGO.get("modificadores_run", [])
+                )
+                qtd_mobs = max(
+                    qtd_mobs,
+                    round(qtd_mobs * efeitos_modificadores["quantidade_inimigos"]),
+                )
+                mult_hp = (
+                    dificuldade['multiplicador_hp_inimigo']
+                    * efeitos_modificadores["vida_inimigos"]
+                )
+                mult_dano = (
+                    dificuldade['multiplicador_dano_inimigo']
+                    * efeitos_modificadores["dano_inimigos"]
+                )
                 
                 for _ in range(qtd_mobs):
                     rx = random.randint(150, LARGURA - 150)
@@ -387,27 +414,37 @@ class Sala:
                     }
                     hp_base, dano_base, tamanho = perfis[tipo_mob]
                     hp = arredondar_para_5(hp_base * mult_hp)
-                    modificadores = CONFIG_JOGO.get("modificadores_run", [])
-                    mult_horda = 1.35 if "horda" in modificadores else 1.0
                     inimigo = {
                         "tipo": tipo_mob,
                         "nome": nome_inimigo_localizado(tipo_mob, self.bioma_id, CONFIG_JOGO.get("idioma", "PT")),
                         "tipo_inimigo": tipo_mob,
                         "bioma_id": self.bioma_id,
                         "rect": pygame.Rect(rx, ry, tamanho, tamanho),
-                        "hp": arredondar_para_5(hp * mult_horda),
-                        "hp_max": arredondar_para_5(hp * mult_horda),
-                        "dano_contato": arredondar_para_5(dano_base * mult_dano * mult_horda),
-                        "multiplicador_velocidade": mult_horda,
+                        "hp": arredondar_para_5(hp),
+                        "hp_max": arredondar_para_5(hp),
+                        "dano_contato": arredondar_para_5(dano_base * mult_dano),
+                        "multiplicador_velocidade": efeitos_modificadores["velocidade_inimigos"],
                         "chance_critico": 0.08,
                     }
-                    if random.random() < min(0.16, 0.05 + self.andar * 0.005):
+                    chance_elite = min(0.16, 0.05 + self.andar * 0.005)
+                    if random.random() < min(
+                        0.75,
+                        chance_elite * efeitos_modificadores["chance_elite"],
+                    ):
                         modificador = random.choice(("blindado", "frenetico", "vampirico", "toxina"))
                         inimigo.update({
                             "elite": True,
                             "modificador_elite": modificador,
-                            "multiplicador_velocidade": 1.35 if modificador == "frenetico" else 1.0,
-                            "gemas_elite": max(5, arredondar_para_5(5 + self.andar)),
+                            "multiplicador_velocidade": max(
+                                efeitos_modificadores["velocidade_inimigos"],
+                                1.35 if modificador == "frenetico" else 1.0,
+                            ),
+                            "gemas_elite": max(
+                                5,
+                                arredondar_para_5(
+                                    (5 + self.andar) * efeitos_modificadores["gemas_elite"]
+                                ),
+                            ),
                             "hp": arredondar_para_5(hp * (1.8 if modificador == "blindado" else 1.5)),
                         })
                         inimigo["hp_max"] = inimigo["hp"]
@@ -1053,9 +1090,17 @@ class Sala:
             pygame.draw.circle(tela, BRANCO, orbe['rect'].center, 7, 1)
 
             if coletor.rect.colliderect(orbe['rect']):
-                coletor.hp = min(coletor.hp_max, coletor.hp + orbe['cura'])
+                cura = max(
+                    1,
+                    arredondar_para_5(
+                        orbe['cura'] * getattr(coletor, "multiplicador_cura_orbes_run", 1.0)
+                    ),
+                )
+                coletor.hp = min(coletor.hp_max, coletor.hp + cura)
                 if particulas:
-                    particulas.criar_texto_dano(coletor.rect.centerx, coletor.rect.y - 15, f"+{orbe['cura']} HP", VERDE)
+                    particulas.criar_texto_dano(
+                        coletor.rect.centerx, coletor.rect.y - 15, f"+{cura} HP", VERDE
+                    )
                 if audio_manager:
                     audio_manager.tocar_som("cura")
                 self.orbes_cura.remove(orbe)
