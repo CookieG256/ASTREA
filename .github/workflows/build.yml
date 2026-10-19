@@ -24,7 +24,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     defaults:
       run:
-        working-directory: meu_roguelike
+        working-directory: AstreaCode
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -38,7 +38,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: meu_roguelike/dist/ASTREA-*
+          path: AstreaCode/dist/ASTREA-*
           if-no-files-found: error
 
   release:
