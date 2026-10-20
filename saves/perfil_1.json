@@ -1,0 +1,204 @@
+{
+    "gemas": 50,
+    "upgrades_permanentes": {
+        "hp_extra": 0,
+        "mana_extra": 0,
+        "dano_extra": 0
+    },
+    "index_descobertas": {
+        "armas": {
+            "pistola": true
+        },
+        "artefatos": {
+            "moeda_sorte": true
+        },
+        "itens": {},
+        "inimigos": {
+            "4:melee": true,
+            "4:ranged": true,
+            "4:duelist": true,
+            "4:tank": true,
+            "4:trapper": true,
+            "6:ranged": true,
+            "6:tank": true,
+            "6:duelist": true,
+            "6:bomber": true,
+            "6:support": true,
+            "6:mage": true
+        },
+        "mobs": {}
+    },
+    "desafio_diario": {
+        "data": "2026-10-19",
+        "abates": 1,
+        "concluido": false
+    },
+    "configuracoes": {
+        "modo_tiro": "AUTOMATICO",
+        "volume_sfx": 6,
+        "volume_musica": 6,
+        "modo_dificuldade": "HARDCORE",
+        "idioma": "PT",
+        "classe_jogador": "Guerreiro",
+        "coop_local": false,
+        "fullscreen": false,
+        "mostrar_missoes": false,
+        "mostrar_efeitos": false,
+        "controles": {
+            "P1": {
+                "cima": 119,
+                "baixo": 115,
+                "esquerda": 97,
+                "direita": 100,
+                "ataque": 32,
+                "dash": 113,
+                "interagir": 101,
+                "magia_1": 104,
+                "magia_2": 106,
+                "magia_3": 107,
+                "magia_4": 108,
+                "defesa": 1073742048,
+                "dispositivo": "teclado",
+                "botoes": {}
+            },
+            "P2": {
+                "cima": 1073741906,
+                "baixo": 1073741905,
+                "esquerda": 1073741904,
+                "direita": 1073741903,
+                "ataque": 1073741922,
+                "dash": 1073742053,
+                "interagir": 1073741912,
+                "magia_1": 1073741913,
+                "magia_2": 1073741914,
+                "magia_3": 1073741915,
+                "magia_4": 1073741916,
+                "defesa": 1073741909,
+                "dispositivo": "teclado",
+                "botoes": {}
+            }
+        }
+    },
+    "upgrades_nivel": {},
+    "cosmeticos_desbloqueados": [
+        "mar_de_estrelas"
+    ],
+    "cosmeticos_equipados": {
+        "P1": "mar_de_estrelas"
+    },
+    "cosmetico_equipado": "mar_de_estrelas",
+    "fragmentos_historia": {
+        "4": true,
+        "6": true
+    },
+    "maestria_armas": {
+        "melee": 10
+    },
+    "conquistas": {
+        "abates_1": "dourado",
+        "andares_1": "dourado",
+        "runs_1": "dourado",
+        "runs_hardcore_1": "dourado"
+    },
+    "estatisticas_conquistas": {
+        "abates": 1,
+        "elites": 0,
+        "andares": 1,
+        "gemas": 0,
+        "runs": 1,
+        "chefes_secretos": 0,
+        "runs_hardcore": 1,
+        "runs_coop": 0
+    },
+    "pet_niveis": {},
+    "missoes": {
+        "diaria_abates": {
+            "periodo": "2026-10-19",
+            "progresso": 0,
+            "resgatada": false
+        },
+        "diaria_gemas": {
+            "periodo": "2026-10-19",
+            "progresso": 0,
+            "resgatada": false
+        },
+        "diaria_salas_limpas": {
+            "periodo": "2026-10-19",
+            "progresso": 0,
+            "resgatada": false
+        },
+        "diaria_chefe": {
+            "periodo": "2026-10-19",
+            "progresso": 0,
+            "resgatada": false
+        },
+        "semanal_abates": {
+            "periodo": "2026-W43",
+            "progresso": 0,
+            "resgatada": false
+        },
+        "semanal_raros": {
+            "periodo": "2026-W43",
+            "progresso": 0,
+            "resgatada": false
+        },
+        "semanal_gemas_muitas": {
+            "periodo": "2026-W43",
+            "progresso": 0,
+            "resgatada": false
+        },
+        "semanal_chefes": {
+            "periodo": "2026-W43",
+            "progresso": 0,
+            "resgatada": false
+        },
+        "quest_abates": {
+            "periodo": "permanente",
+            "progresso": 1,
+            "resgatada": false
+        },
+        "desafio_elites": {
+            "periodo": "permanente",
+            "progresso": 0,
+            "resgatada": false
+        },
+        "quest_andar_15": {
+            "periodo": "permanente",
+            "progresso": 0,
+            "resgatada": false
+        },
+        "quest_resgatar_npcs": {
+            "periodo": "permanente",
+            "progresso": 0,
+            "resgatada": false
+        }
+    },
+    "rotacao_missoes_diarias": "2026-10-19",
+    "missoes_ativas_diarias": [
+        "diaria_gemas",
+        "diaria_chefe",
+        "diaria_abates",
+        "diaria_salas_limpas"
+    ],
+    "rotacao_missoes_semanais": "2026-W43",
+    "missoes_ativas_semanais": [
+        "semanal_chefes",
+        "semanal_abates",
+        "semanal_raros",
+        "semanal_gemas_muitas"
+    ],
+    "melhores_runs": [
+        {
+            "andar": 1,
+            "abates": 1,
+            "gemas": 0,
+            "tempo": 60,
+            "dano_causado": 35,
+            "salas_concluidas": 0,
+            "salas_sem_dano": 0,
+            "inimigos_raros_derrotados": 0,
+            "dificuldade": "HARDCORE",
+            "cooperativo": false
+        }
+    ]
+}

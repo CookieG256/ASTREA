@@ -1,0 +1,89 @@
+{
+    "gemas": 50,
+    "upgrades_permanentes": {
+        "hp_extra": 0,
+        "mana_extra": 0,
+        "dano_extra": 0
+    },
+    "index_descobertas": {
+        "armas": {
+            "pistola": true
+        },
+        "artefatos": {
+            "moeda_sorte": true
+        },
+        "itens": {},
+        "inimigos": {
+            "4:melee": true,
+            "4:ranged": true,
+            "4:duelist": true,
+            "4:tank": true,
+            "4:trapper": true
+        },
+        "mobs": {}
+    },
+    "desafio_diario": {
+        "data": "2026-10-18",
+        "abates": 0,
+        "concluido": false
+    },
+    "configuracoes": {
+        "modo_tiro": "AUTOMATICO",
+        "volume_sfx": 6,
+        "volume_musica": 6,
+        "modo_dificuldade": "NORMAL",
+        "idioma": "ES",
+        "raca_jogador": "Humano",
+        "classe_jogador": "Guerreiro",
+        "coop_local": true,
+        "fullscreen": false,
+        "mostrar_missoes": false,
+        "mostrar_efeitos": false,
+        "controles": {
+            "P1": {
+                "cima": 119,
+                "baixo": 115,
+                "esquerda": 97,
+                "direita": 100,
+                "ataque": 32,
+                "dash": 113,
+                "interagir": 101,
+                "magia_1": 104,
+                "magia_2": 106,
+                "magia_3": 107,
+                "magia_4": 108,
+                "dispositivo": "teclado",
+                "botoes": {}
+            },
+            "P2": {
+                "cima": 1073741906,
+                "baixo": 1073741905,
+                "esquerda": 1073741904,
+                "direita": 1073741903,
+                "ataque": 1073741922,
+                "dash": 1073742053,
+                "interagir": 1073741912,
+                "magia_1": 1073741913,
+                "magia_2": 1073741914,
+                "magia_3": 1073741915,
+                "magia_4": 1073741916,
+                "dispositivo": "teclado",
+                "botoes": {}
+            }
+        }
+    },
+    "upgrades_nivel": {},
+    "cosmeticos_desbloqueados": [
+        "mar_de_estrelas"
+    ],
+    "cosmeticos_equipados": {
+        "P1": "mar_de_estrelas"
+    },
+    "cosmetico_equipado": "mar_de_estrelas",
+    "fragmentos_historia": {
+        "4": true
+    },
+    "maestria_armas": {
+        "melee": 1
+    }
+}
