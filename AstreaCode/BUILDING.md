@@ -22,7 +22,8 @@ game starts depending on pygame-ce-only APIs, those features must be replaced or
 an Android recipe for pygame-ce must be validated before publishing.
 
 For a local Android build, use Linux (or a Linux VM/WSL environment) with Java
-17, the Android SDK/NDK, and Buildozer installed. From the project directory:
+17, the Android SDK/NDK, and Buildozer installed. The APK requires Android 7.0
+(API 24) or newer. From the project directory:
 
 ```bash
 python -m pip install "buildozer==1.5.0" "Cython==0.29.36"
