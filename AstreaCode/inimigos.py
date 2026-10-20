@@ -3,6 +3,7 @@ import pygame
 import math
 import random
 from config import LARGURA, ALTURA, VERMELHO, AMARELO, VERDE, CIANO, CONFIG_JOGO, obter_multiplicadores_andar, obter_gemas_chefe, arredondar_para_5
+from modificadores import obter_efeitos_modificadores
 from jogador import dash_invulneravel
 from progressao import registrar_abate, registrar_abate_diario, concluir_contrato
 from reliquias import registrar_abate_reliquias
@@ -95,12 +96,38 @@ def aplicar_dano_player(
     efeito=None,
     duracao_efeito=0,
     audio_manager=None,
+    atacante=None,
 ):
     if dash_invulneravel(player, tempo_atual):
         if tempo_atual - getattr(player, "esquivou_ultimo_aviso", -1000) >= 600:
             player.esquivou_ultimo_aviso = tempo_atual
             player.esquivou_tempo = tempo_atual + 800
         return False
+    if getattr(player, "escudo_ativo", False):
+        janela_parry = getattr(player, "parry_window_ate", 0)
+        cooldown_parry = getattr(player, "parry_cooldown_ate", 0)
+        if tempo_atual <= janela_parry and tempo_atual >= cooldown_parry:
+            player.parry_cooldown_ate = tempo_atual + 650
+            player.parry_crit_ate = tempo_atual + 2200
+            if atacante is not None:
+                atacante["parry_atordoado_ate"] = tempo_atual + (
+                    2200 if atacante.get("tipo") == "boss" else 1300
+                )
+                if atacante.get("tipo") == "boss":
+                    atacante["parry_crit_bonus"] = 0.35
+            particulas.criar_texto_dano(
+                player.rect.centerx, player.rect.y - 34, "PERFECT!", AMARELO, True
+            )
+            if audio_manager:
+                audio_manager.tocar_som("parry")
+            return False
+        dano = max(1, int(dano * 0.12))
+    sombras_tanque = any(
+        sombra.get("tipo") == "tank" and sombra.get("fim", 0) > tempo_atual
+        for sombra in getattr(player, "soldados_sombra", [])
+    )
+    if sombras_tanque:
+        dano = max(1, int(dano * 0.8))
     if player.imortal or tempo_atual - player.ultimo_dano_recebido <= 800:
         return False
 
@@ -209,7 +236,13 @@ class GerenciadorInimigos:
     ):
         tempo_atual = pygame.time.get_ticks()
         dificuldade = obter_multiplicadores_andar(getattr(sala, "andar", 1))
-        mult_velocidade_base = dificuldade['multiplicador_velocidade_inimigo']
+        efeitos_modificadores = obter_efeitos_modificadores(
+            CONFIG_JOGO.get("modificadores_run", [])
+        )
+        mult_velocidade_base = (
+            dificuldade['multiplicador_velocidade_inimigo']
+            * efeitos_modificadores["velocidade_inimigo"]
+        )
         todos_jogadores = players or [player]
         todos_status = status_managers or [status_manager] * len(todos_jogadores)
         pares_jogadores = [
@@ -218,9 +251,15 @@ class GerenciadorInimigos:
         ] or [(player, status_manager)]
         jogadores_ativos = [par[0] for par in pares_jogadores]
         gestores_status = [par[1] for par in pares_jogadores]
+        obstaculos_solidos = [
+            item["rect"] for item in getattr(sala, "obstaculos", [])
+            if item.get("solido")
+        ]
 
         for inimigo in sala.inimigos[:]:
             if 'rect' not in inimigo:
+                continue
+            if tempo_atual < inimigo.get("parry_atordoado_ate", 0):
                 continue
             mult_velocidade = mult_velocidade_base
             if tempo_atual < inimigo.get("congelado_fim", 0):
@@ -228,6 +267,7 @@ class GerenciadorInimigos:
             
             r = inimigo['rect']
             r.clamp_ip(pygame.Rect(80, 80, LARGURA - 160, ALTURA - 160))
+            posicao_anterior = r.topleft
 
             indice_alvo = min(
                 range(len(jogadores_ativos)),
@@ -240,7 +280,32 @@ class GerenciadorInimigos:
             ix, iy = r.center
             dist = math.hypot(px - ix, py - iy)
 
-            mult_velocidade *= inimigo.get("multiplicador_velocidade", 1.0)
+            angulo_jogador = math.atan2(py - iy, px - ix)
+            angulo_anterior = inimigo.get("angulo_jogador_anterior")
+            if 55 <= dist <= 300 and angulo_anterior is not None:
+                delta_orbita = (angulo_jogador - angulo_anterior + math.pi) % (2 * math.pi) - math.pi
+                direcao_orbita = 1 if delta_orbita > 0 else -1
+                if 0.008 <= abs(delta_orbita) <= 0.38:
+                    if inimigo.get("direcao_orbita") == direcao_orbita:
+                        inimigo["sequencia_orbita"] = inimigo.get("sequencia_orbita", 0) + 1
+                    else:
+                        inimigo["direcao_orbita"] = direcao_orbita
+                        inimigo["sequencia_orbita"] = 1
+                else:
+                    inimigo["sequencia_orbita"] = max(0, inimigo.get("sequencia_orbita", 0) - 2)
+                if inimigo.get("sequencia_orbita", 0) >= 7:
+                    inimigo["adaptacao_fim"] = tempo_atual + 4500
+                    angulo_previsto = angulo_jogador + direcao_orbita * 0.55
+                    px = ix + math.cos(angulo_previsto) * dist
+                    py = iy + math.sin(angulo_previsto) * dist
+            inimigo["angulo_jogador_anterior"] = angulo_jogador
+            if tempo_atual < inimigo.get("adaptacao_fim", 0):
+                px += getattr(player, "vel_x", 0) * 8
+                py += getattr(player, "vel_y", 0) * 8
+            dist = math.hypot(px - ix, py - iy)
+
+            if inimigo.get("elite"):
+                mult_velocidade *= inimigo.get("multiplicador_velocidade", 1.0)
 
             if tipo == 'boss':
                 hp_max = inimigo['hp_max']
@@ -361,6 +426,7 @@ class GerenciadorInimigos:
                                 alvo, particulas, dano, tempo_atual,
                                 gestores_status[alvo_indice] if alvo_indice < len(gestores_status) else status_manager,
                                 inimigo.get("chance_critico", 0.08), inimigo.get("efeito_especial", "lentidao"), 3200, audio_manager,
+                                atacante=inimigo,
                             )
                     continue
 
@@ -401,6 +467,7 @@ class GerenciadorInimigos:
                                     tempo_atual,
                                     gestores_status[alvo_indice] if alvo_indice < len(gestores_status) else status_manager,
                                     inimigo.get("chance_critico", 0.08), "lentidao", 2500, audio_manager,
+                                    atacante=inimigo,
                                 )
                     continue
 
@@ -421,6 +488,7 @@ class GerenciadorInimigos:
                     if tempo_atual - ataque_pendente["inicio"] >= ataque_pendente["aviso_ms"]:
                         inimigo["ataque_especial_pendente"] = None
                         ataque = ataque_pendente["ataque"]
+                        inimigo["animacao_ataque_fim"] = tempo_atual + 320
                         for deslocamento in ataque["angulos"]:
                             angulo = ataque_pendente["angulo"] + deslocamento
                             velocidade = ataque["velocidade"]
@@ -496,7 +564,7 @@ class GerenciadorInimigos:
                             aplicar_dano_player(
                                 player, particulas, dano_explosao, tempo_atual,
                                 status_manager, inimigo.get("chance_critico", 0.08),
-                                "queimadura", 2000, audio_manager,
+                                "queimadura", 2000, audio_manager, atacante=inimigo,
                             )
                         particulas.criar_explosao(ix, iy, AMARELO)
                         inimigo["hp"] = 0
@@ -523,10 +591,14 @@ class GerenciadorInimigos:
                 intervalo = 1900 if tipo in ("mage", "trapper") else 2000
                 if tempo_atual - ultimo_tiro > intervalo / mult_velocidade:
                     inimigo['ultimo_tiro'] = tempo_atual
+                    inimigo["animacao_ataque_fim"] = tempo_atual + 320
                     if dist > 0:
                         velocidade_projetil = 4.5 if tipo == "trapper" else 5 if tipo == "mage" else 6
-                        vx = (px - ix) / dist * velocidade_projetil * mult_velocidade
-                        vy = (py - iy) / dist * velocidade_projetil * mult_velocidade
+                        alvo_x = px + getattr(player, "vel_x", 0) * 10
+                        alvo_y = py + getattr(player, "vel_y", 0) * 10
+                        dist_alvo = max(1, math.hypot(alvo_x - ix, alvo_y - iy))
+                        vx = (alvo_x - ix) / dist_alvo * velocidade_projetil * mult_velocidade
+                        vy = (alvo_y - iy) / dist_alvo * velocidade_projetil * mult_velocidade
                         dano = int(inimigo.get('dano_contato', 10))
                         projetil = {'x': ix, 'y': iy, 'vx': vx, 'vy': vy, 'dano': dano}
                         if tipo in ("mage", "trapper"):
@@ -583,8 +655,29 @@ class GerenciadorInimigos:
                     r.x += int((ix - px) / dist * 2 * mult_velocidade)
                     r.y += int((iy - py) / dist * 2 * mult_velocidade)
 
+            if any(r.colliderect(obstaculo) for obstaculo in obstaculos_solidos):
+                destino = r.topleft
+                r.topleft = posicao_anterior
+                r.x = destino[0]
+                if any(r.colliderect(obstaculo) for obstaculo in obstaculos_solidos):
+                    r.x = posicao_anterior[0]
+                r.y = destino[1]
+                if any(r.colliderect(obstaculo) for obstaculo in obstaculos_solidos):
+                    r.y = posicao_anterior[1]
+                if r.topleft == posicao_anterior and dist > 0:
+                    passo_lateral = max(3, int(4 * mult_velocidade))
+                    direcao_lateral = inimigo.get("direcao_orbita", 1)
+                    for sinal in (direcao_lateral, -direcao_lateral):
+                        desvio_x = int((- (py - iy) / dist) * passo_lateral * sinal)
+                        desvio_y = int(((px - ix) / dist) * passo_lateral * sinal)
+                        candidato = r.move(desvio_x, desvio_y)
+                        if not any(candidato.colliderect(obstaculo) for obstaculo in obstaculos_solidos):
+                            r.topleft = candidato.topleft
+                            break
+
             if tipo != "bomber" and any(r.colliderect(alvo.rect) for alvo in jogadores_ativos):
                 dano_t = arredondar_para_5(inimigo.get('dano_contato', 20 if tipo == 'mimico' else 15))
+                inimigo["animacao_ataque_fim"] = tempo_atual + 280
                 efeito_contato = (
                     "veneno" if inimigo.get("modificador_elite") == "toxina"
                     else random.choice(("sangramento", "fraqueza")) if tipo in ("melee", "mimico", "assassin")
@@ -599,6 +692,7 @@ class GerenciadorInimigos:
                     recebeu_dano = aplicar_dano_player(
                         alvo, particulas, dano_t, tempo_atual, gestor,
                         inimigo.get("chance_critico", 0.08), efeito_contato, 3500, audio_manager,
+                        atacante=inimigo,
                     )
                     if recebeu_dano and inimigo.get("modificador_elite") == "vampirico":
                         cura_elite = max(5, arredondar_para_5(inimigo["hp_max"] * 0.04))
@@ -637,8 +731,19 @@ class GerenciadorInimigos:
                     sala.limpa = True
                 else:
                     mult_drop = dificuldade['multiplicador_drop_ouro']
-                    if random.random() < mult_drop:
-                        ouro_drop = max(5, arredondar_para_5(random.randint(3, 7) * mult_drop))
+                    chance_drop_ouro = min(
+                        1.0,
+                        mult_drop * efeitos_modificadores["drops"]
+                        + getattr(player, "sorte_run", 0.0),
+                    )
+                    if random.random() < chance_drop_ouro:
+                        ouro_drop = max(
+                            5,
+                            arredondar_para_5(
+                                random.randint(3, 7) * mult_drop
+                                * efeitos_modificadores["drops"]
+                            ),
+                        )
                         sala.moedas_no_chao.append({'rect': pygame.Rect(r.centerx, r.centery, 12, 12), 'tipo': 'ouro', 'valor': ouro_drop})
                     if inimigo.get("elite"):
                         sala.moedas_no_chao.append({
@@ -676,7 +781,9 @@ class GerenciadorInimigos:
                                         f"COSMÉTICO: {COSMETICOS[cosmetico]['nome']['PT']}",
                                         (220, 150, 255), True,
                                     )
-                    if random.random() < 0.08 * mult_drop:
+                    if random.random() < (
+                        0.08 * mult_drop * efeitos_modificadores["cura"]
+                    ):
                         sala.orbes_cura.append({'rect': pygame.Rect(r.centerx + 10, r.centery, 14, 14), 'cura': 20})
                 
                 particulas.criar_explosao(r.centerx, r.centery, VERMELHO)

@@ -35,7 +35,8 @@ class GerenciadorConquistas:
         self.dados["conquistas"][chave] = "dourado" if hardcore else "comum"
 
     def registrar_run(self, estatisticas, dificuldade, cooperativo=False):
-        totais = self.dados["estatisticas_conquistas"]
+        totais = self.dados.setdefault("estatisticas_conquistas", {})
+        conquistas = self.dados.setdefault("conquistas", {})
         incrementos = {
             "abates": int(estatisticas.get("mobs_mortos", 0)),
             "elites": int(estatisticas.get("elites_derrotados", 0)),
@@ -50,8 +51,8 @@ class GerenciadorConquistas:
 
         for chave, _, objetivo, meta in CATALOGO_CONQUISTAS:
             if totais.get(objetivo, 0) >= meta:
-                desbloqueada = chave not in self.dados["conquistas"]
-                self.dados["conquistas"].setdefault(
+                desbloqueada = chave not in conquistas
+                conquistas.setdefault(
                     chave, "dourado" if dificuldade == "HARDCORE" else "comum"
                 )
                 if desbloqueada:

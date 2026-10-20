@@ -17,6 +17,18 @@ _MUSICAS = {
     "bioma_10": (98.0, 123.47, 146.83),
 }
 
+_VARIACOES_MUSICA = {
+    "exploracao": (1.0, 0.0),
+    "perigo": (1.12, 1.5),
+    "vida_baixa": (0.82, -2.0),
+    "chefe": (0.72, -3.0),
+    "chefe_fase": (1.28, 2.5),
+}
+
+_BASES_MUSICA = tuple(_MUSICAS.values())
+for _bioma_id in range(11, 16):
+    _MUSICAS[f"bioma_{_bioma_id}"] = _BASES_MUSICA[(_bioma_id - 1) % len(_BASES_MUSICA)]
+
 _EFEITOS = {
     "menu": (880, 660, 0.07),
     "tiro": (760, 240, 0.09),
@@ -31,6 +43,7 @@ _EFEITOS = {
     "dash": (620, 180, 0.12),
     "porta": (180, 320, 0.2),
     "morte_inimigo": (260, 100, 0.15),
+    "heartbeat": (72, 48, 0.28),
 }
 
 
@@ -114,6 +127,21 @@ class GerenciadorAudio:
         self._canal_musica.play(self._musicas[faixa], loops=-1)
         self._canal_musica.set_volume(self.volume_musica)
         self._musica_atual = faixa
+
+    def tocar_musica_dinamica(self, bioma_id, situacao):
+        if not self.ativo:
+            return
+        situacao = situacao if situacao in _VARIACOES_MUSICA else "exploracao"
+        base = _MUSICAS.get(f"bioma_{bioma_id}", _MUSICAS["bioma_1"])
+        escala, deslocamento = _VARIACOES_MUSICA[situacao]
+        frequencias = tuple(
+            max(55.0, frequencia * escala + deslocamento)
+            for frequencia in base
+        )
+        faixa = f"bioma_{bioma_id}_{situacao}"
+        if faixa not in self._musicas:
+            self._musicas[faixa] = self._criar_ambiente(frequencias)
+        self.tocar_musica(faixa)
 
     def parar_musica(self):
         if self.ativo:

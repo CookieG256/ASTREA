@@ -4,6 +4,7 @@ import pygame
 ACOES = (
     "cima", "baixo", "esquerda", "direita",
     "ataque", "dash", "interagir", "magia_1", "magia_2", "magia_3", "magia_4",
+    "defesa",
 )
 
 PADROES = {
@@ -13,6 +14,7 @@ PADROES = {
         "ataque": pygame.K_SPACE, "dash": pygame.K_q, "interagir": pygame.K_e,
         "magia_1": pygame.K_h, "magia_2": pygame.K_j,
         "magia_3": pygame.K_k, "magia_4": pygame.K_l,
+        "defesa": pygame.K_LCTRL,
         "dispositivo": "teclado",
     },
     "P2": {
@@ -21,7 +23,8 @@ PADROES = {
         "ataque": pygame.K_KP0, "dash": pygame.K_RSHIFT,
         "interagir": pygame.K_KP_ENTER, "magia_1": pygame.K_KP1,
         "magia_2": pygame.K_KP2, "magia_3": pygame.K_KP3,
-        "magia_4": pygame.K_KP4, "dispositivo": "teclado",
+        "magia_4": pygame.K_KP4, "defesa": pygame.K_KP_MULTIPLY,
+        "dispositivo": "teclado",
     },
 }
 
@@ -94,6 +97,7 @@ def estado_analogico(joystick, controles=None, deadzone=0.25):
         indice = int(controles.get("botoes", {}).get(acao, {
             "ataque": 0, "dash": 1, "interagir": 2,
             "magia_1": 3, "magia_2": 4, "magia_3": 5, "magia_4": 6,
+            "defesa": 7,
         }.get(acao, 0)))
         acoes[acao] = bool(indice < joystick.get_numbuttons() and joystick.get_button(indice))
     return acoes

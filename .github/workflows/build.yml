@@ -19,7 +19,7 @@ jobs:
             artifact: ASTREA-Windows
           - os: macos-latest
             artifact: ASTREA-macOS
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             artifact: ASTREA-Linux
     runs-on: ${{ matrix.os }}
     defaults:
@@ -41,9 +41,45 @@ jobs:
           path: AstreaCode/dist/ASTREA-*
           if-no-files-found: error
 
+  android:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: AstreaCode
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Android build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf cmake libffi-dev libltdl-dev libncurses5-dev \
+            libncursesw5-dev libssl-dev libtinfo6 libtool openjdk-17-jdk \
+            pkg-config python3-pip unzip zip zlib1g-dev
+          python -m pip install --upgrade pip
+          python -m pip install "buildozer==1.5.0" "Cython==0.29.36"
+      - name: Build Android APK
+        run: buildozer android debug
+      - name: Prepare downloadable APK
+        run: |
+          mkdir -p dist
+          cp bin/*.apk dist/ASTREA-Android.apk
+      - name: Upload Android build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ASTREA-Android
+          path: AstreaCode/dist/ASTREA-Android.apk
+          if-no-files-found: error
+
   release:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: build
+    needs: [build, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write

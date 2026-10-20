@@ -2,9 +2,12 @@
 import random
 import pygame
 import math
-from config import LARGURA, ALTURA, VERMELHO, AMARELO, BRANCO, CINZA, CINZA_CLARO, VERDE, ROXO, CIANO, DOURADO_UI, RARIDADE_CORES, CONFIG_JOGO, FONTE_SYS, FONTE_GRANDE, VERMELHO_ESCURO, LARANJA, BIOMAS_INIMIGOS, obter_multiplicadores_andar, arredondar_para_5
+from config import LARGURA, ALTURA, VERMELHO, AMARELO, BRANCO, CINZA, CINZA_CLARO, VERDE, ROXO, CIANO, DOURADO_UI, RARIDADE_CORES, CONFIG_JOGO, FONTE_SYS, FONTE_PEQUENA, FONTE_GRANDE, VERMELHO_ESCURO, LARANJA, BIOMAS_INIMIGOS, obter_multiplicadores_andar, arredondar_para_5
 from save import carregar_dados, salvar_dados
-from banco_itens import TODAS_ARMAS, TODOS_AMULETOS, SETS_ARMADURAS, registrar_item_no_index
+from banco_itens import (
+    TODAS_ARMAS, TODOS_AMULETOS, SETS_ARMADURAS,
+    registrar_item_no_index, sortear_arma_por_classe,
+)
 from idiomas import t, nome_inimigo_localizado, nome_chefe_localizado, nome_bioma_localizado
 from pixel_assets import sprite_inimigo
 from encantamentos import aplicar_forja, custo_encantamento, custo_forja, sortear_encantamento
@@ -13,7 +16,14 @@ from narrativa import NPCS, resgatar_npc, npc_para_reencontro, registrar_reencon
 from narrativa import nivel_reputacao
 from cosmeticos import desbloquear_cosmetico, sortear_cosmetico_bloqueado
 from missoes import registrar_progresso
-from modificadores import calcular_efeitos_modificadores
+from modificadores import obter_efeitos_modificadores
+
+TIPOS_SALAS_ESPECIAIS = (
+    "LOJA", "FERREIRO", "FORJA", "MAGIA", "CASSINO", "SACRIFICIO",
+    "RECOMPENSA", "MIMICO", "EVENTO", "RELIQUIA", "BIBLIOTECA",
+    "SANTUARIO", "FONTE", "PORTAL", "CACADA", "EXCLUSIVA_BIOMA", "ENIGMA",
+    "OBELISCO", "POCO", "RITUAL", "TESOURO", "OVERCLOCK", "IMPOSTOR",
+)
 
 
 def preco_redondo(valor, minimo=10):
@@ -35,9 +45,12 @@ class Sala:
             "CASSINO", "SACRIFICIO", "RECOMPENSA", "CHEFE", "MIMICO", "EVENTO", "RELIQUIA",
             "BIBLIOTECA", "SANTUARIO", "FONTE", "PORTAL", "EXCLUSIVA_BIOMA",
             "RESGATE", "NPC_ENCONTRO", "REVIVER_P2", "TREINO_CHEFE",
+            "OBELISCO", "POCO", "RITUAL", "TESOURO", "OVERCLOCK",
         }
         self.limpa = tipo in salas_sem_combate
         self.inimigos = []
+        self.obstaculos = []
+        self.obstaculos_gerados = False
         self.moedas_no_chao = []
         self.orbes_cura = []
         self.baus = []
@@ -55,6 +68,7 @@ class Sala:
         self.sala_resolvida = False
         self.reliquia_resolvida = False
         self.npc_id = None
+        self.impostor_revelado = False
         self.sem_dano = True
         self.dano_inicio_sala = 0
         self.recompensa_sem_dano_concedida = False
@@ -65,6 +79,10 @@ class Sala:
         self.enigma_resolvido = False
         self.ofertas_ferreiro = []
         self.ferreiro_comprados = []
+        self.overclock_inicio = None
+        self.overclock_fim = 0
+        self.overclock_concluido = False
+        self.overclock_recompensa_reclamada = False
 
         self.itens_ofertados = []
         self.loja_comprados = []
@@ -74,6 +92,7 @@ class Sala:
             "CASSINO", "SACRIFICIO", "RECOMPENSA", "CHEFE", "BAU", "MIMICO", "EVENTO", "RELIQUIA",
             "BIBLIOTECA", "SANTUARIO", "FONTE", "PORTAL", "EXCLUSIVA_BIOMA",
             "RESGATE", "NPC_ENCONTRO", "REVIVER_P2", "TREINO_CHEFE", "ENIGMA",
+            "OBELISCO", "POCO", "RITUAL", "TESOURO", "OVERCLOCK", "IMPOSTOR",
         ) else 0
         self.onda_atual = 0
         self.ordem_tipos_inimigos = list(BIOMAS_INIMIGOS.get(bioma_id, BIOMAS_INIMIGOS[1]))
@@ -88,12 +107,16 @@ class Sala:
             self.npc_id = random.choice(disponiveis) if disponiveis else None
         elif self.tipo == "NPC_ENCONTRO" and self.npc_id is None:
             self.npc_id = npc_para_reencontro()
+        elif self.tipo == "IMPOSTOR" and self.npc_id is None and NPCS:
+            self.npc_id = random.choice(tuple(NPCS))
         if self.tipo == "TREINO_CHEFE":
             chefes = carregar_dados().get("chefes_derrotados", [])
             if chefes:
                 self.boss_treino_id = random.choice(chefes)
                 self.bioma_id = int(self.boss_treino_id)
                 self.limpa = False
+        if self.tipo in ("NORMAL", "CACADA", "TREINO_CHEFE", "CHEFE", "OVERCLOCK", "IMPOSTOR"):
+            self.gerar_obstaculos()
         if self.tipo == "LOJA" and not self.itens_ofertados:
             armas = [dict(item, tipo="equip_arma") for item in TODAS_ARMAS]
             amuletos = [dict(item, tipo="equip_amulet") for item in TODOS_AMULETOS]
@@ -113,7 +136,9 @@ class Sala:
                         "desc": dados["set_completo"],
                     })
             garantidos = [
-                random.choice(armas),
+                sortear_arma_por_classe(
+                    armas, CONFIG_JOGO.get("classe_jogador", "Guerreiro")
+                ),
                 random.choice(amuletos),
                 random.choice(armaduras),
             ]
@@ -127,7 +152,7 @@ class Sala:
             self.itens_ofertados = escolhidos
 
             self.loja_comprados = [False] * len(self.itens_ofertados)
-        elif self.tipo in ("RECOMPENSA", "MIMICO") and not self.baus and not self.bau_resolvido:
+        elif self.tipo in ("RECOMPENSA", "MIMICO", "TESOURO") and not self.baus and not self.bau_resolvido:
             self.baus = [
                 {
                     "rect": pygame.Rect(LARGURA // 2 - 170 + indice * 340, ALTURA // 2, 60, 52),
@@ -158,6 +183,109 @@ class Sala:
             })
             self.limpa = False
 
+    def gerar_obstaculos(self):
+        if self.obstaculos_gerados:
+            return
+        self.obstaculos_gerados = True
+        self.obstaculos.clear()
+        quantidade = random.randint(2, 5) if self.tipo == "NORMAL" else random.randint(1, 3)
+        modelos = (
+            ("parede", (90, 24), True),
+            ("parede", (24, 90), True),
+            ("lago", (112, 58), True),
+            ("caixa", (42, 38), True),
+            ("vaso", (28, 36), True),
+            ("terminal", (48, 38), True),
+            ("espinhos", (64, 38), False),
+            ("bomba", (30, 30), False),
+        )
+        zona_spawn = pygame.Rect(LARGURA // 2 - 115, ALTURA // 2 - 90, 230, 180)
+        for _ in range(quantidade):
+            tipo, tamanho, solido = random.choice(modelos)
+            largura, altura = tamanho
+            for _tentativa in range(40):
+                rect = pygame.Rect(
+                    random.randint(120, LARGURA - 120 - largura),
+                    random.randint(120, ALTURA - 120 - altura),
+                    largura,
+                    altura,
+                )
+                if zona_spawn.colliderect(rect) or any(
+                    existente["rect"].inflate(18, 18).colliderect(rect)
+                    for existente in self.obstaculos
+                ):
+                    continue
+                self.obstaculos.append({
+                    "tipo": tipo,
+                    "rect": rect,
+                    "solido": solido,
+                    "vida": 2 if tipo in ("caixa", "vaso", "terminal") else 1,
+                    "armada": False,
+                    "detonar_em": 0,
+                    "ultimo_dano_p1": 0,
+                    "ultimo_dano_p2": 0,
+                })
+                break
+
+    def desenhar_obstaculos(self, tela):
+        for obstaculo in self.obstaculos:
+            rect = obstaculo["rect"]
+            tipo = obstaculo["tipo"]
+            if tipo == "parede":
+                pygame.draw.rect(tela, (31, 28, 43), rect, border_radius=4)
+                pygame.draw.rect(tela, (12, 11, 20), rect, 3, border_radius=4)
+                pygame.draw.line(tela, (74, 63, 91), rect.topleft, rect.topright, 2)
+            elif tipo == "lago":
+                pygame.draw.ellipse(tela, (20, 38, 63), rect)
+                pygame.draw.ellipse(tela, (37, 80, 115), rect, 2)
+                pygame.draw.arc(tela, (87, 139, 165), rect.inflate(-16, -12), 0.2, 2.2, 2)
+            elif tipo == "caixa":
+                pygame.draw.rect(tela, (105, 66, 40), rect, border_radius=3)
+                pygame.draw.rect(tela, (45, 29, 24), rect, 3, border_radius=3)
+                pygame.draw.line(tela, (177, 119, 65), rect.topleft, rect.bottomright, 2)
+                pygame.draw.line(tela, (177, 119, 65), rect.topright, rect.bottomleft, 2)
+            elif tipo == "vaso":
+                pygame.draw.ellipse(tela, (104, 67, 48), rect)
+                pygame.draw.ellipse(tela, (46, 34, 31), rect, 2)
+                pygame.draw.ellipse(tela, (165, 112, 72), rect.inflate(-8, -20), 2)
+            elif tipo == "terminal":
+                pygame.draw.rect(tela, (35, 50, 63), rect, border_radius=4)
+                pygame.draw.rect(tela, (14, 20, 28), rect, 3, border_radius=4)
+                pygame.draw.rect(tela, CIANO, rect.inflate(-12, -16), border_radius=2)
+                pygame.draw.line(tela, (12, 24, 30), rect.midtop, rect.midbottom, 2)
+            elif tipo == "espinhos":
+                pygame.draw.rect(tela, (65, 25, 39), rect, border_radius=5)
+                passo = max(12, rect.width // 5)
+                for x in range(rect.left + 4, rect.right - 4, passo):
+                    pygame.draw.polygon(tela, (192, 74, 95), (
+                        (x, rect.bottom - 3), (x + passo // 2, rect.top + 2),
+                        (x + passo, rect.bottom - 3),
+                    ))
+            elif tipo == "bomba":
+                cor = VERMELHO if not obstaculo["armada"] else AMARELO
+                pygame.draw.circle(tela, (45, 25, 31), rect.center, rect.width // 2 + 3)
+                pygame.draw.circle(tela, cor, rect.center, rect.width // 2)
+                pygame.draw.line(tela, AMARELO, rect.topright, (rect.right + 6, rect.top - 5), 3)
+
+    def interagir_obstaculo(self, jogador, particulas=None):
+        for obstaculo in self.obstaculos[:]:
+            if math.dist(jogador.rect.center, obstaculo["rect"].center) > 82:
+                continue
+            if obstaculo["tipo"] in ("caixa", "vaso", "terminal"):
+                self.obstaculos.remove(obstaculo)
+                ouro = random.choice((5, 10, 15, 20))
+                jogador.ganhar_ouro(ouro)
+                if particulas:
+                    particulas.criar_texto_dano(
+                        jogador.rect.centerx, jogador.rect.y - 18, f"+{ouro} ouro", AMARELO
+                    )
+                return True
+            if obstaculo["tipo"] == "bomba" and not obstaculo["armada"]:
+                obstaculo["armada"] = True
+                obstaculo["detonar_em"] = pygame.time.get_ticks() + 900
+                return True
+        return False
+
     def _sortear_ofertas_ferreiro(self):
         armas = [item.copy() for item in TODAS_ARMAS]
         for item in armas:
@@ -186,7 +314,17 @@ class Sala:
             * nivel + random.random()
         )
         ofertas = []
+        arma_focada = sortear_arma_por_classe(
+            armas, CONFIG_JOGO.get("classe_jogador", "Guerreiro")
+        )
+        arma_focada["tipo"] = "equip_arma"
+        arma_focada["custo"] = preco_redondo(
+            arma_focada.get("dano", 10) * 5 * max(0.65, 1 - nivel * 0.05), 50
+        )
+        ofertas.append(arma_focada)
         for item in reversed(disponiveis):
+            if item["nome"] == arma_focada["nome"]:
+                continue
             item["custo"] = preco_redondo(
                 item.get("dano", item.get("valor", item.get("valor_hp", 10)))
                 * 5 * max(0.65, 1 - nivel * 0.05), 50
@@ -304,6 +442,8 @@ class Sala:
         self.baus.clear()
         self.bau_resolvido = True
         self.limpa = True
+        if self.tipo == "OVERCLOCK":
+            self.overclock_recompensa_reclamada = True
         if particulas:
             particulas.criar_texto_dano(player.rect.centerx, player.rect.y - 18, mensagem, cor)
         return True
@@ -326,15 +466,13 @@ class Sala:
     def spawnar_boss_direto(self, secreto=False):
         self.inimigos.clear()
         dificuldade = obter_multiplicadores_andar(self.andar)
-        efeitos_modificadores = calcular_efeitos_modificadores(
+        efeitos_modificadores = obter_efeitos_modificadores(
             CONFIG_JOGO.get("modificadores_run", [])
         )
         bioma_boss = 15 if secreto else self.bioma_id
         hp_boss = arredondar_para_5(
-            1100
-            * dificuldade['multiplicador_hp_inimigo']
-            * efeitos_modificadores["vida_inimigos"]
-            * (2 if secreto else 1)
+            1100 * dificuldade['multiplicador_hp_inimigo']
+            * efeitos_modificadores["hp_inimigo"] * (2 if secreto else 1)
         )
         self.inimigos.append({
             'tipo': 'boss',
@@ -342,11 +480,9 @@ class Sala:
             'hp': hp_boss,
             'hp_max': hp_boss,
             'dano_contato': arredondar_para_5(
-                34
-                * dificuldade['multiplicador_dano_inimigo']
-                * efeitos_modificadores["dano_inimigos"]
+                34 * dificuldade['multiplicador_dano_inimigo']
+                * efeitos_modificadores["dano_inimigo"]
             ),
-            'multiplicador_velocidade': efeitos_modificadores["velocidade_inimigos"],
             'eh_boss': True,
             'nome': t("chefe_secreto_nome", CONFIG_JOGO.get("idioma", "PT")) if secreto else nome_chefe_localizado(self.bioma_id, CONFIG_JOGO.get("idioma", "PT")),
             'rage_ativado': False,
@@ -364,7 +500,7 @@ class Sala:
         self.fase_chefe = 1
         self.limpa = False
 
-    def spawnar_proxima_onda(self):
+    def spawnar_proxima_onda(self, sorte=0.0):
         if self.limpa: return
         if len(self.inimigos) > 0: return
 
@@ -375,27 +511,37 @@ class Sala:
         else:
             if self.onda_atual < self.total_ondas:
                 self.onda_atual += 1
-                qtd_mobs = random.randint(3, 5)
+                modificadores = CONFIG_JOGO.get("modificadores_run", [])
+                efeitos_modificadores = obter_efeitos_modificadores(modificadores)
+                qtd_mobs = min(
+                    9,
+                    math.ceil(
+                        random.randint(3, 5) * efeitos_modificadores["quantidade"]
+                    ),
+                )
                 dificuldade = obter_multiplicadores_andar(self.andar)
-                efeitos_modificadores = calcular_efeitos_modificadores(
-                    CONFIG_JOGO.get("modificadores_run", [])
-                )
-                qtd_mobs = max(
-                    qtd_mobs,
-                    round(qtd_mobs * efeitos_modificadores["quantidade_inimigos"]),
-                )
                 mult_hp = (
                     dificuldade['multiplicador_hp_inimigo']
-                    * efeitos_modificadores["vida_inimigos"]
+                    * efeitos_modificadores["hp_inimigo"]
                 )
                 mult_dano = (
                     dificuldade['multiplicador_dano_inimigo']
-                    * efeitos_modificadores["dano_inimigos"]
+                    * efeitos_modificadores["dano_inimigo"]
                 )
                 
                 for _ in range(qtd_mobs):
                     rx = random.randint(150, LARGURA - 150)
                     ry = random.randint(150, ALTURA - 150)
+                    tamanho_tentativa = 30
+                    for _tentativa in range(20):
+                        candidato = pygame.Rect(rx, ry, tamanho_tentativa, tamanho_tentativa)
+                        if not any(
+                            obstaculo.get("solido") and candidato.colliderect(obstaculo["rect"])
+                            for obstaculo in self.obstaculos
+                        ):
+                            break
+                        rx = random.randint(150, LARGURA - 150)
+                        ry = random.randint(150, ALTURA - 150)
                     tipo_mob = self.ordem_tipos_inimigos[
                         self.indice_tipo_inimigo % len(self.ordem_tipos_inimigos)
                     ]
@@ -420,38 +566,30 @@ class Sala:
                         "tipo_inimigo": tipo_mob,
                         "bioma_id": self.bioma_id,
                         "rect": pygame.Rect(rx, ry, tamanho, tamanho),
-                        "hp": arredondar_para_5(hp),
-                        "hp_max": arredondar_para_5(hp),
+                        "hp": hp,
+                        "hp_max": hp,
                         "dano_contato": arredondar_para_5(dano_base * mult_dano),
-                        "multiplicador_velocidade": efeitos_modificadores["velocidade_inimigos"],
+                        "multiplicador_velocidade": efeitos_modificadores["velocidade_inimigo"],
                         "chance_critico": 0.08,
                     }
-                    chance_elite = min(0.16, 0.05 + self.andar * 0.005)
-                    if random.random() < min(
-                        0.75,
-                        chance_elite * efeitos_modificadores["chance_elite"],
-                    ):
+                    chance_elite = (
+                        (0.05 + self.andar * 0.005 + efeitos_modificadores["chance_elite"])
+                        * efeitos_modificadores["elite"]
+                    )
+                    if random.random() < min(0.45, chance_elite):
                         modificador = random.choice(("blindado", "frenetico", "vampirico", "toxina"))
                         inimigo.update({
                             "elite": True,
                             "modificador_elite": modificador,
-                            "multiplicador_velocidade": max(
-                                efeitos_modificadores["velocidade_inimigos"],
-                                1.35 if modificador == "frenetico" else 1.0,
-                            ),
-                            "gemas_elite": max(
-                                5,
-                                arredondar_para_5(
-                                    (5 + self.andar) * efeitos_modificadores["gemas_elite"]
-                                ),
-                            ),
+                            "multiplicador_velocidade": 1.35 if modificador == "frenetico" else 1.0,
+                            "gemas_elite": max(5, arredondar_para_5(5 + self.andar)),
                             "hp": arredondar_para_5(hp * (1.8 if modificador == "blindado" else 1.5)),
                         })
                         inimigo["hp_max"] = inimigo["hp"]
                         inimigo["dano_contato"] = arredondar_para_5(
                             inimigo["dano_contato"] * (1.35 if modificador in ("frenetico", "vampirico") else 1.2)
                         )
-                    if random.random() < 0.035:
+                    if random.random() < min(0.25, 0.035 + max(0.0, sorte)):
                         inimigo["raro"] = True
                         inimigo["hp"] = arredondar_para_5(inimigo["hp"] * 2.0)
                         inimigo["hp_max"] = inimigo["hp"]
@@ -479,13 +617,205 @@ class Sala:
             else:
                 self.limpa = True
 
+    def ativar_impostor(self):
+        if self.tipo != "IMPOSTOR" or self.impostor_revelado:
+            return False
+        dificuldade = obter_multiplicadores_andar(self.andar)
+        efeitos = obter_efeitos_modificadores(
+            CONFIG_JOGO.get("modificadores_run", [])
+        )
+        hp_mult = dificuldade["multiplicador_hp_inimigo"] * efeitos["hp_inimigo"]
+        dano_mult = dificuldade["multiplicador_dano_inimigo"] * efeitos["dano_inimigo"]
+        agora = pygame.time.get_ticks()
+        self.inimigos = [
+            {
+                "tipo": "mimico",
+                "nome": t("npc_impostor_revelado", CONFIG_JOGO.get("idioma", "PT")),
+                "tipo_inimigo": "melee",
+                "bioma_id": self.bioma_id,
+                "rect": pygame.Rect(LARGURA // 2 - 24, ALTURA // 2 - 24, 48, 48),
+                "hp": arredondar_para_5(100 * hp_mult),
+                "hp_max": arredondar_para_5(100 * hp_mult),
+                "dano_contato": arredondar_para_5(20 * dano_mult),
+                "chance_critico": 0.12,
+                "mimico_agressivo": True,
+                "npc_impostor": True,
+                "ultimo_ataque_aviso": "",
+            }
+        ]
+        for tipo, posicao in (
+            ("assassin", (LARGURA // 2 - 110, ALTURA // 2)),
+            ("melee", (LARGURA // 2 + 90, ALTURA // 2)),
+        ):
+            hp = arredondar_para_5(45 * hp_mult)
+            inimigo = {
+                "tipo": tipo,
+                "nome": nome_inimigo_localizado(tipo, self.bioma_id, CONFIG_JOGO.get("idioma", "PT")),
+                "tipo_inimigo": tipo,
+                "bioma_id": self.bioma_id,
+                "rect": pygame.Rect(posicao[0], posicao[1], 32, 32),
+                "hp": hp,
+                "hp_max": hp,
+                "dano_contato": arredondar_para_5(12 * dano_mult),
+                "chance_critico": 0.08,
+                "multiplicador_velocidade": efeitos["velocidade_inimigo"],
+            }
+            if tipo == "assassin":
+                inimigo["proxima_investida"] = agora
+            self.inimigos.append(inimigo)
+        self.impostor_revelado = True
+        self.limpa = False
+        return True
+
     @staticmethod
     def _desenhar_titulo_sala(tela, texto, cor):
         titulo = FONTE_GRANDE.render(texto, True, cor)
         tela.blit(titulo, (LARGURA // 2 - titulo.get_width() // 2, 100))
 
     def desenhar_conteudo_especial(self, tela, player, evento_tecla, particulas=None, status_manager=None, player2=None):
-        if self.tipo == "LOJA":
+        if self.tipo == "IMPOSTOR":
+            idioma = CONFIG_JOGO.get("idioma", "PT")
+            self._desenhar_titulo_sala(
+                tela, t("npc_impostor_titulo", idioma), DOURADO_UI
+            )
+            npc = NPCS.get(self.npc_id)
+            if self.impostor_revelado:
+                texto = t("npc_impostor_revelado", idioma)
+                cor = VERMELHO
+            elif npc:
+                texto = f"{npc['simbolo']}  {npc['nome']} · {t('npc_impostor_interagir', idioma)}"
+                cor = BRANCO
+            else:
+                texto = t("npc_impostor_interagir", idioma)
+                cor = BRANCO
+            linha = FONTE_SYS.render(texto, True, cor)
+            tela.blit(linha, (LARGURA // 2 - linha.get_width() // 2, 170))
+            if evento_tecla and evento_tecla.key == pygame.K_e:
+                if self.ativar_impostor() and particulas:
+                    particulas.criar_texto_dano(
+                        player.rect.centerx, player.rect.y - 20,
+                        t("npc_impostor_revelado", idioma), VERMELHO, True,
+                    )
+            return
+
+        if self.tipo == "OVERCLOCK":
+            idioma = CONFIG_JOGO.get("idioma", "PT")
+            self._desenhar_titulo_sala(
+                tela, t("overclock_titulo", idioma), LARANJA
+            )
+            if self.overclock_inicio is None:
+                texto = t("overclock_iniciar", idioma)
+                if evento_tecla and evento_tecla.key == pygame.K_e:
+                    self.overclock_inicio = pygame.time.get_ticks()
+                    self.overclock_fim = self.overclock_inicio + 45_000
+                    self.total_ondas = 999
+                    self.onda_atual = 0
+                    self.limpa = False
+                    self.spawnar_proxima_onda(
+                        getattr(player, "sorte_run", 0.0)
+                    )
+            elif not self.overclock_concluido:
+                agora = pygame.time.get_ticks()
+                restante = max(0, math.ceil((self.overclock_fim - agora) / 1000))
+                texto = t("overclock_resto", idioma).format(segundos=restante)
+                if agora >= self.overclock_fim:
+                    self.overclock_concluido = True
+                    self.inimigos.clear()
+                    self.limpa = True
+                    self.baus = [{
+                        "rect": pygame.Rect(
+                            LARGURA // 2 - 18, ALTURA // 2 - 18, 36, 36
+                        ),
+                        "conteudo": {
+                            "tipo": "ouro",
+                            "valor": arredondar_para_5(150 + self.andar * 10),
+                        },
+                    }]
+                    texto = t("overclock_recompensa", idioma)
+            elif self.overclock_recompensa_reclamada:
+                texto = t("overclock_finalizado", idioma)
+            else:
+                texto = t("overclock_recompensa", idioma)
+            linha = FONTE_SYS.render(texto, True, BRANCO)
+            tela.blit(linha, (LARGURA // 2 - linha.get_width() // 2, 155))
+            if self.baus:
+                bau = self.baus[0]
+                pygame.draw.rect(tela, (139, 69, 19), bau["rect"], border_radius=4)
+                pygame.draw.rect(tela, AMARELO, bau["rect"], 2, border_radius=4)
+                dica = FONTE_SYS.render("[E]", True, AMARELO)
+                tela.blit(
+                    dica,
+                    (bau["rect"].centerx - dica.get_width() // 2, bau["rect"].bottom + 6),
+                )
+            return
+
+        if self.tipo in ("OBELISCO", "POCO", "RITUAL"):
+            idioma = CONFIG_JOGO.get("idioma", "PT")
+            titulo = FONTE_GRANDE.render(t("sala_" + self.tipo.lower(), idioma), True, ROXO)
+            tela.blit(titulo, (LARGURA // 2 - titulo.get_width() // 2, 95))
+            opcoes = {
+                "OBELISCO": ("sala_obelisco_1", "sala_obelisco_2", "sala_obelisco_3"),
+                "POCO": ("sala_poco_1", "sala_poco_2", "sala_poco_3"),
+                "RITUAL": ("sala_ritual_1", "sala_ritual_2", "sala_ritual_3"),
+            }[self.tipo]
+            for indice, chave in enumerate(opcoes):
+                linha = FONTE_SYS.render(f"[{indice + 1}] {t(chave, idioma)}", True, BRANCO)
+                tela.blit(linha, (LARGURA // 2 - linha.get_width() // 2, 175 + indice * 44))
+            if evento_tecla and evento_tecla.unicode in ("1", "2", "3") and not self.evento_resolvido:
+                escolha = int(evento_tecla.unicode)
+                if self.tipo == "OBELISCO":
+                    if escolha == 1:
+                        player.buffs_run["dano"] = player.buffs_run.get("dano", 0) + 0.15
+                    elif escolha == 2:
+                        player.hp_max += 20
+                        player.hp = min(player.hp_max, player.hp + 20)
+                    else:
+                        premio = 20
+                        dados = carregar_dados()
+                        dados["gemas"] = int(dados.get("gemas", 0)) + premio
+                        salvar_dados(dados)
+                        registrar_progresso(dados, "gemas", premio)
+                elif self.tipo == "POCO":
+                    if player.ouro < 50:
+                        aviso = FONTE_PEQUENA.render(t("sala_poco_sem_ouro", idioma), True, VERMELHO)
+                        tela.blit(aviso, (LARGURA // 2 - aviso.get_width() // 2, 330))
+                        return
+                    player.ouro -= 50
+                    if random.random() < 0.5:
+                        player.ganhar_ouro(100)
+                        self.cassino_msg = t("sala_poco_ganhou", idioma)
+                    else:
+                        self.cassino_msg = t("sala_poco_perdeu", idioma)
+                else:
+                    if player.hp <= 20:
+                        aviso = FONTE_PEQUENA.render(t("sala_ritual_sem_vida", idioma), True, VERMELHO)
+                        tela.blit(aviso, (LARGURA // 2 - aviso.get_width() // 2, 330))
+                        return
+                    player.hp -= 15
+                    if escolha == 1:
+                        player.mana = min(player.mana_max, player.mana + 50)
+                    elif escolha == 2:
+                        player.buffs_run["dano"] = player.buffs_run.get("dano", 0) + 0.10
+                    else:
+                        premio = 25
+                        dados = carregar_dados()
+                        dados["gemas"] = int(dados.get("gemas", 0)) + premio
+                        salvar_dados(dados)
+                        registrar_progresso(dados, "gemas", premio)
+                self.evento_resolvido = True
+                self.limpa = True
+                if particulas:
+                    texto = self.cassino_msg if self.tipo == "POCO" else t("evento_concluido", idioma)
+                    particulas.criar_texto_dano(
+                        player.rect.centerx, player.rect.y - 18, texto,
+                        AMARELO if self.tipo == "POCO" else VERDE,
+                    )
+            if self.evento_resolvido:
+                chave_resultado = self.cassino_msg if self.tipo == "POCO" else "evento_concluido"
+                texto_resultado = chave_resultado if self.tipo == "POCO" else t(chave_resultado, idioma)
+                resultado = FONTE_PEQUENA.render(texto_resultado, True, AMARELO)
+                tela.blit(resultado, (LARGURA // 2 - resultado.get_width() // 2, 330))
+        elif self.tipo == "LOJA":
             if not self.itens_ofertados:
                 self.itens_ofertados = random.sample(TODAS_ARMAS, min(5, len(TODAS_ARMAS)))
                 self.loja_comprados = [False] * len(self.itens_ofertados)
@@ -633,7 +963,7 @@ class Sala:
                 texto = FONTE_SYS.render(t("forja_sem_arma", idioma), True, CINZA_CLARO)
                 tela.blit(texto, (LARGURA // 2 - texto.get_width() // 2, 220))
 
-        elif self.tipo in ("RECOMPENSA", "MIMICO"):
+        elif self.tipo in ("RECOMPENSA", "MIMICO", "TESOURO"):
             idioma = CONFIG_JOGO.get("idioma", "PT")
             txt_t = FONTE_GRANDE.render(t("sala_recompensa", idioma), True, AMARELO)
             tela.blit(txt_t, (LARGURA//2 - txt_t.get_width()//2, 80))
@@ -1090,17 +1420,9 @@ class Sala:
             pygame.draw.circle(tela, BRANCO, orbe['rect'].center, 7, 1)
 
             if coletor.rect.colliderect(orbe['rect']):
-                cura = max(
-                    1,
-                    arredondar_para_5(
-                        orbe['cura'] * getattr(coletor, "multiplicador_cura_orbes_run", 1.0)
-                    ),
-                )
-                coletor.hp = min(coletor.hp_max, coletor.hp + cura)
+                coletor.hp = min(coletor.hp_max, coletor.hp + orbe['cura'])
                 if particulas:
-                    particulas.criar_texto_dano(
-                        coletor.rect.centerx, coletor.rect.y - 15, f"+{cura} HP", VERDE
-                    )
+                    particulas.criar_texto_dano(coletor.rect.centerx, coletor.rect.y - 15, f"+{orbe['cura']} HP", VERDE)
                 if audio_manager:
                     audio_manager.tocar_som("cura")
                 self.orbes_cura.remove(orbe)
@@ -1108,7 +1430,24 @@ class Sala:
         for inimigo in self.inimigos:
             tipo = inimigo.get('tipo', 'melee')
             r = inimigo['rect']
-            imagem = sprite_inimigo(inimigo.get("bioma_id", self.bioma_id), tipo, r.size)
+            tempo_sprite = pygame.time.get_ticks()
+            if tempo_sprite < inimigo.get("animacao_ataque_fim", 0):
+                estado_animacao = "attack"
+            else:
+                posicao_sprite_anterior = inimigo.get("_sprite_posicao_anterior")
+                estado_animacao = (
+                    "walk" if posicao_sprite_anterior is not None and posicao_sprite_anterior != r.topleft
+                    else "idle"
+                )
+            inimigo["_sprite_posicao_anterior"] = r.topleft
+            imagem = sprite_inimigo(
+                inimigo.get("bioma_id", self.bioma_id),
+                tipo,
+                r.size,
+                inimigo.get("sprite"),
+                estado_animacao,
+                tempo_sprite,
+            )
             tela.blit(imagem, r)
             if inimigo.get("raro"):
                 pygame.draw.rect(tela, (26, 8, 40), r.inflate(8, 8), 4, border_radius=5)
@@ -1118,7 +1457,9 @@ class Sala:
 
             if inimigo.get("nome"):
                 idioma = CONFIG_JOGO.get("idioma", "PT")
-                if inimigo.get("secreto"):
+                if inimigo.get("npc_impostor"):
+                    nome = t("npc_impostor_nome", idioma)
+                elif inimigo.get("secreto"):
                     nome = t("chefe_secreto_nome", idioma)
                 elif inimigo.get("tipo_inimigo"):
                     nome = nome_inimigo_localizado(inimigo["tipo_inimigo"], inimigo.get("bioma_id", self.bioma_id), idioma)
@@ -1234,11 +1575,7 @@ def gerar_andar(bioma_id=1, andar=1):
 
     pos_ordenadas = sorted(salas.keys(), key=lambda p: abs(p[0]) + abs(p[1]))
     pos_chefe = pos_ordenadas[-1]
-    tipos_disponiveis = [
-        "LOJA", "FERREIRO", "FORJA", "MAGIA", "CASSINO", "SACRIFICIO",
-        "RECOMPENSA", "MIMICO", "EVENTO", "RELIQUIA", "BIBLIOTECA",
-        "SANTUARIO", "FONTE", "PORTAL", "CACADA", "EXCLUSIVA_BIOMA", "ENIGMA",
-    ]
+    tipos_disponiveis = list(TIPOS_SALAS_ESPECIAIS)
     dados_npcs = carregar_dados()
     if dados_npcs.get("chefes_derrotados"):
         tipos_disponiveis.append("TREINO_CHEFE")
@@ -1247,7 +1584,7 @@ def gerar_andar(bioma_id=1, andar=1):
         tipos_disponiveis.append("RESGATE")
     if npc_para_reencontro():
         tipos_disponiveis.append("NPC_ENCONTRO")
-    quantidade_especiais = random.randint(2, min(4, len(pos_ordenadas) - 2))
+    quantidade_especiais = random.randint(3, min(5, len(pos_ordenadas) - 2))
     pos_especiais = random.sample(
         [pos for pos in pos_ordenadas if pos not in ((0, 0), pos_chefe)],
         k=quantidade_especiais,
@@ -1273,12 +1610,16 @@ def gerar_andar(bioma_id=1, andar=1):
             sala.segredo_chefe_disponivel = random.random() < 0.35
         elif pos in pos_especiais:
             sala.tipo = tipos_especiais[pos_especiais.index(pos)]
-            sala.limpa = sala.tipo not in ("TREINO_CHEFE", "ENIGMA")
+            sala.limpa = sala.tipo not in (
+                "TREINO_CHEFE", "ENIGMA", "IMPOSTOR"
+            )
             sala.total_ondas = 0
         else:
             sala.tipo = "NORMAL"
             sala.limpa = False
             sala.total_ondas = random.randint(3, 5)
+        if sala.tipo in ("NORMAL", "CHEFE", "CACADA", "TREINO_CHEFE"):
+            sala.gerar_obstaculos()
 
     return s_ini, salas
 

@@ -1,6 +1,10 @@
 # pixel_assets.py
 import pygame
 import hashlib
+import re
+import unicodedata
+from pathlib import Path
+from enemy_sprites import obter_frames_inimigo
 
 def criar_sprite_matriz(matriz, tamanho_pixel=2):
     if not matriz or not matriz[0]:
@@ -69,6 +73,43 @@ ESTETICA_BIOMAS = {
 }
 
 _CACHE_SPRITES = {}
+_CACHE_SPRITES_ARQUIVO = {}
+_CACHE_SPRITES_AUSENTES = set()
+
+
+def _slug_sprite(valor):
+    valor = unicodedata.normalize("NFKD", str(valor or ""))
+    valor = valor.encode("ascii", "ignore").decode("ascii").lower()
+    return re.sub(r"[^a-z0-9_-]+", "-", Path(valor).stem).strip("-") or "sprite"
+
+
+def _carregar_sprite_arquivo(categoria, candidatos, tamanho):
+    tamanho = (max(1, int(tamanho[0])), max(1, int(tamanho[1])))
+    candidatos = tuple(candidatos)
+    chave = ("arquivo", categoria, candidatos, tamanho)
+    if chave in _CACHE_SPRITES_AUSENTES:
+        return None
+    for relativo in candidatos:
+        caminho = Path(__file__).resolve().parent / "assets" / "sprites" / categoria / relativo
+        if not caminho.is_file():
+            continue
+        stat = caminho.stat()
+        chave_arquivo = chave + (str(caminho), stat.st_mtime_ns, stat.st_size)
+        if chave_arquivo not in _CACHE_SPRITES_ARQUIVO:
+            imagem = pygame.image.load(str(caminho))
+            if pygame.display.get_surface():
+                imagem = imagem.convert_alpha()
+            imagem = pygame.transform.scale(imagem, tamanho)
+            _CACHE_SPRITES_ARQUIVO[chave_arquivo] = imagem
+        return _CACHE_SPRITES_ARQUIVO[chave_arquivo]
+    _CACHE_SPRITES_AUSENTES.add(chave)
+    return None
+
+
+def _tipo_armadura(item):
+    return item.get("tipo") in (
+        "equip_capacete", "equip_peitoral", "equip_calca",
+    )
 
 
 def _stable_seed(value):
@@ -79,10 +120,40 @@ def _pixel(surface, color, x, y, size=1):
     pygame.draw.rect(surface, color, (x, y, size, size))
 
 
-def sprite_inimigo(bioma_id, tipo, tamanho):
-    chave = ("enemy", bioma_id, tipo, tamanho)
+def sprite_inimigo(
+    bioma_id,
+    tipo,
+    tamanho,
+    sprite_key=None,
+    estado_animacao="idle",
+    tempo_ms=None,
+):
+    chave_sprite = _slug_sprite(sprite_key or tipo)
+    tamanho_normalizado = (max(1, tamanho[0]), max(1, tamanho[1]))
+    frames = obter_frames_inimigo(chave_sprite, estado_animacao, tipo)
+    if frames:
+        instante = pygame.time.get_ticks() if tempo_ms is None else tempo_ms
+        indice_frame = (instante // 120) % len(frames)
+        chave_frame = (
+            "enemy-sheet", chave_sprite, estado_animacao,
+            tamanho_normalizado, indice_frame,
+        )
+        if chave_frame not in _CACHE_SPRITES:
+            _CACHE_SPRITES[chave_frame] = pygame.transform.scale(
+                frames[indice_frame], tamanho_normalizado
+            )
+        return _CACHE_SPRITES[chave_frame]
+
+    chave = ("enemy", bioma_id, tipo, chave_sprite, tamanho_normalizado)
     if chave in _CACHE_SPRITES:
         return _CACHE_SPRITES[chave]
+    caminhos = [f"{bioma_id}/{chave_sprite}.png", f"{chave_sprite}.png"]
+    if chave_sprite != _slug_sprite(tipo):
+        caminhos.extend((f"{bioma_id}/{_slug_sprite(tipo)}.png", f"{_slug_sprite(tipo)}.png"))
+    sprite = _carregar_sprite_arquivo("inimigos", caminhos, tamanho_normalizado)
+    if sprite is not None:
+        _CACHE_SPRITES[chave] = sprite
+        return sprite
 
     paleta = ESTETICA_BIOMAS.get(bioma_id, ESTETICA_BIOMAS[1])
     base = paleta["chefe_cor"] if tipo == "boss" else (139, 82, 38) if tipo == "mimico" else paleta["mob_cor"]
@@ -122,7 +193,7 @@ def sprite_inimigo(bioma_id, tipo, tamanho):
         _pixel(original, luz, x, y)
 
     original = pygame.transform.scale(original, (24, 24))
-    sprite = pygame.transform.scale(original, (max(1, tamanho[0]), max(1, tamanho[1])))
+    sprite = pygame.transform.scale(original, tamanho_normalizado)
     _CACHE_SPRITES[chave] = sprite
     return sprite
 
@@ -130,12 +201,40 @@ def sprite_inimigo(bioma_id, tipo, tamanho):
 def sprite_item(item, tamanho=32):
     nome = item.get("nome", "item")
     tipo = item.get("tipo_arma", "amulet" if "valor" in item else "melee")
-    chave = ("item", nome, tipo, tamanho)
+    categoria = "armaduras" if _tipo_armadura(item) else "items"
+    identificador = _slug_sprite(item.get("sprite") or nome)
+    tamanho = min(32, max(1, int(tamanho)))
+    chave = ("item", nome, tipo, categoria, identificador, tamanho)
     if chave in _CACHE_SPRITES:
         return _CACHE_SPRITES[chave]
+    sprite = _carregar_sprite_arquivo(
+        categoria, (f"{identificador}.png",), (tamanho, tamanho)
+    )
+    if sprite is not None:
+        _CACHE_SPRITES[chave] = sprite
+        return sprite
 
     original = pygame.Surface((16, 16), pygame.SRCALPHA)
     seed = _stable_seed(nome)
+    if categoria == "armaduras":
+        cor = (165, 175, 195)
+        sombra = (75, 85, 110)
+        tipo_peca = item["tipo"]
+        if tipo_peca == "equip_capacete":
+            pygame.draw.rect(original, cor, (4, 3, 8, 7))
+            pygame.draw.rect(original, sombra, (3, 6, 10, 3))
+            pygame.draw.rect(original, (235, 220, 150), (6, 6, 4, 2))
+        elif tipo_peca == "equip_peitoral":
+            pygame.draw.polygon(original, cor, ((4, 3), (6, 2), (10, 2), (12, 3), (13, 12), (3, 12)))
+            pygame.draw.line(original, sombra, (8, 4), (8, 12), 2)
+            pygame.draw.rect(original, (235, 220, 150), (6, 6, 4, 2))
+        else:
+            pygame.draw.polygon(original, cor, ((4, 3), (12, 3), (11, 12), (9, 14), (7, 14), (5, 12)))
+            pygame.draw.line(original, sombra, (8, 5), (8, 12), 2)
+        sprite = pygame.transform.scale(original, (tamanho, tamanho))
+        _CACHE_SPRITES[chave] = sprite
+        return sprite
+
     cor = {
         "melee": (205, 215, 230),
         "ranged": (160, 205, 130),
@@ -172,7 +271,7 @@ def sprite_item(item, tamanho=32):
         if (seed >> (bit * 3)) & 1:
             _pixel(original, (255, 255, 255), 2 + bit * 5, 2 + bit * 4)
     original = pygame.transform.scale(original, (24, 24))
-    sprite = pygame.transform.scale(original, (min(32, max(1, tamanho)),) * 2)
+    sprite = pygame.transform.scale(original, (tamanho, tamanho))
     _CACHE_SPRITES[chave] = sprite
     return sprite
 

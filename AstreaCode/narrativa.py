@@ -24,6 +24,11 @@ NPCS = {
     "cartografo": {"nome": "Ivo, o Cartógrafo", "simbolo": "M"},
     "curandeira": {"nome": "Nara, a Curandeira", "simbolo": "+"},
     "ferreiro": {"nome": "Bram, o Ferreiro", "simbolo": "F"},
+    "alquimista": {"nome": "Yara, a Alquimista", "simbolo": "A"},
+    "mercadora": {"nome": "Tomas, o Mercador", "simbolo": "$"},
+    "oraculo": {"nome": "Suri, o Oráculo", "simbolo": "?"},
+    "treinador": {"nome": "Kael, o Treinador", "simbolo": "K"},
+    "guardiao": {"nome": "Ena, a Guardiã", "simbolo": "G"},
 }
 
 

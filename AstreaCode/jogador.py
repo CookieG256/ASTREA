@@ -5,7 +5,7 @@ from save import carregar_dados
 from banco_itens import TODAS_ARMAS
 from personagens import ARMAS_INICIAIS, RACES_AND_CLASSES, stats_selecao
 from cosmeticos import COSMETICOS, COSMETICO_PADRAO, obtener_cosmeticos_equipados
-from modificadores import calcular_efeitos_modificadores
+from modificadores import obter_efeitos_modificadores
 
 
 def configurar_municao_arma(arma):
@@ -73,13 +73,18 @@ class Jogador:
         self.tempo_imortal = 0
         self.em_dash = False
         self.rect = pygame.Rect(x, y, 30, 30)
+        self.vel_x = 0
+        self.vel_y = 0
         self.vel_base = 5 + nivel("velocidade") * 0.15 + velocidade_dificuldade
         self.hp_max = 200 + bonus_hp + nivel("hp_max") * 10 + hp_dificuldade
         self.hp = self.hp_max
-        self.mana_max = 100 + bonus_mana + nivel("mana_max") * 10
+        self.mana_max = 100
+        self.carga_suprema = 0.0 + bonus_mana + nivel("mana_max") * 10
         self.mana = self.mana_max
         self.multiplicador_dano_recebido = 1.0
         self.buffs_run = {"dano": 0.0, "vida": 0, "velocidade": 0.0, "defesa": 0.0}
+        self.pocoes_run = 0
+        self.sorte_run = 0.0
         self.pet_tipo = None
         self.pet_bonus_dano = 0.0
         self.pet_hp_bonus = 0
@@ -179,10 +184,9 @@ class Jogador:
                 self.equipado_arma = dict(arma_inicial, tipo="equip_arma")
                 configurar_municao_arma(self.equipado_arma)
         modificadores_run = CONFIG_JOGO.get("modificadores_run", [])
-        efeitos_modificadores = calcular_efeitos_modificadores(modificadores_run)
-        self.multiplicador_recompensas = efeitos_modificadores["recompensas"]
+        efeitos_modificadores = obter_efeitos_modificadores(modificadores_run)
+        self.multiplicador_recompensas = efeitos_modificadores["recompensa"]
         self.multiplicador_dano_recebido_run = efeitos_modificadores["dano_recebido"]
-        self.multiplicador_cura_orbes_run = efeitos_modificadores["cura_orbes"]
         self.dano_recebido_total = 0
         self.evento_bioma_ativo = None
         self.mochila_itens = []
@@ -190,6 +194,13 @@ class Jogador:
         self.amuletos_equipados = []
         self.ultimo_dano_recebido = 0
         self.em_run = False
+        self.cooldowns_miticos = {}
+        self.soldados_sombra = []
+        self.meteoros_ativos = []
+        self.singularidade_ativa = None
+        self.poder_mantra = 0
+        self.imovel_ate = 0
+        self.heartbeat_proximo = 0
         
         # Controle de Ataque Melee
         self.atacando_melee = False
@@ -213,6 +224,16 @@ class Jogador:
         self.pet_bonus_defesa = 0.18 if tipo == "guardiao_astral" else 0.10 if tipo == "besouro" else 0
         self.pet_bonus_critico = 0.05 if tipo == "serpente" else 0
         self.pet_bonus_velocidade = 1 if tipo == "lince" else 0
+        niveis_pet = carregar_dados().get("pet_niveis", {})
+        self.nivel_pet = max(1, min(5, int(niveis_pet.get(tipo, 1))))
+        multiplicador_nivel = 1 + 0.15 * (self.nivel_pet - 1)
+        self.pet_hp_bonus = int(round(self.pet_hp_bonus * multiplicador_nivel))
+        self.pet_mana_bonus = int(round(self.pet_mana_bonus * multiplicador_nivel))
+        self.pet_bonus_dano *= multiplicador_nivel
+        self.pet_bonus_ouro *= multiplicador_nivel
+        self.pet_bonus_defesa *= multiplicador_nivel
+        self.pet_bonus_critico *= multiplicador_nivel
+        self.pet_bonus_velocidade *= multiplicador_nivel
         self.hp_max += self.pet_hp_bonus
         self.mana_max += self.pet_mana_bonus
         self.bonus_dano_percent += self.pet_bonus_dano
@@ -226,12 +247,7 @@ class Jogador:
     def ganhar_ouro(self, quantidade):
         bonus = getattr(self, "pet_bonus_ouro", 0.0) + self.bonus_ouro_permanente
         mult_recompensa = getattr(self, "multiplicador_recompensas", 1.0)
-        ouro_recebido = max(
-            0,
-            arredondar_para_5(quantidade * (1.0 + bonus) * mult_recompensa),
-        )
-        self.ouro += ouro_recebido
-        return ouro_recebido
+        self.ouro += max(0, arredondar_para_5(quantidade * (1.0 + bonus) * mult_recompensa))
 
     def executar_dash(self, teclas, tempo_atual, controles=None):
         if tempo_atual - self.ultimo_dash > self.cooldown_dash and not self.em_dash:
@@ -272,8 +288,9 @@ class Jogador:
             self.ultimo_dash = tempo_atual
             self.dash_invulneravel_ate = tempo_atual + self.duracao_dash + 1000
 
-    def mover(self, teclas, tempo_atual, multiplicador_velocidade=1.0, controles=None):
+    def mover(self, teclas, tempo_atual, multiplicador_velocidade=1.0, controles=None, obstaculos=None):
         controles = controles or {}
+        posicao_inicial = self.rect.topleft
         def pressionada(acao, padrao):
             chave = controles.get(acao, padrao)
             if isinstance(teclas, dict):
@@ -318,6 +335,20 @@ class Jogador:
                 self.angulo_olhando = 270
 
         self.rect.clamp_ip(pygame.Rect(80, 80, LARGURA - 160, ALTURA - 160))
+        destino = self.rect.topleft
+        self.rect.topleft = posicao_inicial
+        if obstaculos:
+            for eixo, valor in (("x", destino[0]), ("y", destino[1])):
+                setattr(self.rect, eixo, valor)
+                if any(
+                    obstaculo.get("solido") and self.rect.colliderect(obstaculo["rect"])
+                    for obstaculo in obstaculos
+                ):
+                    setattr(self.rect, eixo, posicao_inicial[0 if eixo == "x" else 1])
+        else:
+            self.rect.topleft = destino
+        self.vel_x = self.rect.x - posicao_inicial[0]
+        self.vel_y = self.rect.y - posicao_inicial[1]
 
     def desenhar(self, tela):
         cor_cosmetico = COSMETICOS.get(self.cosmetico, COSMETICOS[COSMETICO_PADRAO])["cor"]

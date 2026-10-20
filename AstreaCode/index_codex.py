@@ -217,7 +217,9 @@ class TelaIndexCodex:
                     desbloqueado = bool(inimigos_vistos.get(item["chave"], False))
                     nome = item["nome"] if desbloqueado else t("index_inimigo_bloqueado", lang)
                     desc = item["desc"] if desbloqueado else t("index_encontre_inimigo", lang)
-                    icone = sprite_inimigo(item["bioma_id"], item["tipo"], (32, 32))
+                    icone = sprite_inimigo(
+                        item["bioma_id"], item["tipo"], (32, 32), item.get("sprite")
+                    )
                     tela.blit(icone, (rect.x + 10, rect.y + 12))
                     eh_chefe = item["tipo"] == "boss"
                     cor = VERMELHO if eh_chefe else VERDE if desbloqueado else CINZA

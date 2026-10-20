@@ -172,7 +172,7 @@ _DIFICULDADE_ALIASES = {
 }
 
 CONFIG_JOGO = {
-    'modo_tiro': 'AUTOMATICO', 
+    'modo_tiro': 'MANUAL',
     'volume_sfx': 6,
     'volume_musica': 6,
     'modo_dificuldade': 'EASY',
@@ -183,20 +183,23 @@ CONFIG_JOGO = {
     'fullscreen': False,
     'mostrar_missoes': True,
     'mostrar_efeitos': True,
+    'modificadores_run': [],
     'controles': {
         'P1': {
             'cima': pygame.K_w, 'baixo': pygame.K_s,
             'esquerda': pygame.K_a, 'direita': pygame.K_d,
             'ataque': pygame.K_SPACE, 'dash': pygame.K_q, 'interagir': pygame.K_e,
             'magia_1': pygame.K_h, 'magia_2': pygame.K_j,
-            'magia_3': pygame.K_k, 'magia_4': pygame.K_l, 'dispositivo': 'teclado',
+            'magia_3': pygame.K_k, 'magia_4': pygame.K_l,
+            'defesa': pygame.K_LCTRL, 'dispositivo': 'teclado',
         },
         'P2': {
             'cima': pygame.K_UP, 'baixo': pygame.K_DOWN,
             'esquerda': pygame.K_LEFT, 'direita': pygame.K_RIGHT,
             'ataque': pygame.K_KP0, 'dash': pygame.K_RSHIFT, 'interagir': pygame.K_KP_ENTER,
             'magia_1': pygame.K_KP1, 'magia_2': pygame.K_KP2,
-            'magia_3': pygame.K_KP3, 'magia_4': pygame.K_KP4, 'dispositivo': 'teclado',
+            'magia_3': pygame.K_KP3, 'magia_4': pygame.K_KP4,
+            'defesa': pygame.K_KP_MULTIPLY, 'dispositivo': 'teclado',
         },
     },
 }

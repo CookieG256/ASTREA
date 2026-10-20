@@ -4,5 +4,8 @@ __pycache__/
 build/
 dist/
 *.spec
+!buildozer.spec
+.buildozer/
+bin/
 save_roguelike.json
 .DS_Store

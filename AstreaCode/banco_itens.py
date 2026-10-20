@@ -55,6 +55,7 @@ TODAS_ARMAS = [
     {"nome": "Besta Leve", "tipo_arma": "ranged", "raridade": "Comum", "dano": 13, "cadencia": 500, "desc": "Mecanismo simples de gatilho."},
     {"nome": "Arco de Corda Simples", "tipo_arma": "ranged", "raridade": "Comum", "dano": 8, "cadencia": 350, "desc": "Corda de fibra vegetal reforçada."},
     {"nome": "Estilingue de Ferro", "tipo_arma": "ranged", "raridade": "Comum", "dano": 10, "cadencia": 320, "desc": "Usa esferas de metal como munição."},
+    {"nome": "Bumerangue de Retorno", "tipo_arma": "ranged", "raridade": "Raro", "dano": 24, "cadencia": 720, "desc": "A lâmina retorna ao portador e pode atingir alvos na ida e na volta.", "retorna": True},
     {"nome": "Zarabatana de Bambu", "tipo_arma": "ranged", "raridade": "Comum", "dano": 7, "cadencia": 210, "desc": "Leve e fácil de soprar."},
     {"nome": "Arco de Bétula", "tipo_arma": "ranged", "raridade": "Comum", "dano": 10, "cadencia": 390, "desc": "Madeira clara e resistente."},
     {"nome": "Besta de Madeira", "tipo_arma": "ranged", "raridade": "Comum", "dano": 12, "cadencia": 490, "desc": "Estrutura robusta de carvalho."},
@@ -212,11 +213,41 @@ TODAS_ARMAS = [
     {"nome": "Grimório de Magia Proibida", "tipo_arma": "mage", "raridade": "Lendário", "dano": 90, "cadencia": 410, "desc": "Magia sombria de destruição em massa."},
     {"nome": "Varinha do Big Bang", "tipo_arma": "mage", "raridade": "Lendário", "dano": 84, "cadencia": 300, "desc": "Cria explosões de supernovas."},
 
-    # === MÍTICAS (1 Melee, 1 Ranged, 1 Mage) ===
-    {"nome": "Excalibur do Juízo Final", "tipo_arma": "melee", "raridade": "Mítico", "dano": 150, "cadencia": 180, "desc": "A lendária lâmina sagrada definitiva. Ondas de choque em cada balanço."},
-    {"nome": "Arco do Cosmos Infinito", "tipo_arma": "ranged", "raridade": "Mítico", "dano": 140, "cadencia": 160, "desc": "Flechas teleguiadas infinitas de pura energia cósmica."},
-    {"nome": "Cajado do Arquiteto Universal", "tipo_arma": "mage", "raridade": "Mítico", "dano": 145, "cadencia": 170, "desc": "Manipula o tecido do universo para aniquilar qualquer ameaça."}
+    # === SEIS ARMAS MÍTICAS TEMÁTICAS ===
+    {"nome": "Adagas do Monarca Sombrio", "tipo_arma": "melee", "raridade": "Mítico", "dano": 150, "cadencia": 180, "desc": "Abate inimigos para erguer soldados de sombra; Arise! convoca uma escolta.", "mitica_id": "adaga_sombra"},
+    {"nome": "Espadão do Berserker", "tipo_arma": "melee", "raridade": "Mítico", "dano": 175, "cadencia": 620, "desc": "Quanto menor sua vida, maior o dano. O Corte Devastador ignora escudos.", "mitica_id": "espada_berserk"},
+    {"nome": "Pistolas Gung-Fu", "tipo_arma": "ranged", "raridade": "Mítico", "dano": 140, "cadencia": 160, "desc": "O dash dispara em 360 graus; Showtime atravessa vários alvos.", "mitica_id": "pistolas_duplas"},
+    {"nome": "Arco do Julgamento Celestial", "tipo_arma": "ranged", "raridade": "Mítico", "dano": 145, "cadencia": 360, "desc": "Acertos críticos invocam luz; Disparo Estelar atravessa inimigos.", "mitica_id": "arco_luz"},
+    {"nome": "Cajado da Explosão Carmesim", "tipo_arma": "mage", "raridade": "Mítico", "dano": 155, "cadencia": 240, "desc": "Quatro feitiços ígneos culminam em uma explosão que consome muita mana.", "mitica_id": "cajado_explosao"},
+    {"nome": "Grimório do Infinito Violeta", "tipo_arma": "mage", "raridade": "Mítico", "dano": 150, "cadencia": 260, "desc": "Uma aura desacelera projéteis; Singularidade Roxa atrai e rompe inimigos.", "mitica_id": "grimorio_infinito"}
 ]
+
+
+def sortear_arma_por_classe(armas, classe):
+    armas = list(armas)
+    if not armas:
+        raise ValueError("Não há armas disponíveis para sortear.")
+    tipo_prioritario = {
+        "Guerreiro": "melee",
+        "Espadachim": "melee",
+        "Mago": "mage",
+        "Atirador": "ranged",
+        "Caçador": "ranged",
+        "Ladrão": "melee",
+    }.get(classe)
+    pesos = []
+    for arma in armas:
+        tipo = arma.get("tipo_arma")
+        nome = arma.get("nome", "").casefold()
+        e_adaga = any(palavra in nome for palavra in ("adaga", "punhal", "daga"))
+        if classe == "Ladrão" and e_adaga:
+            pesos.append(7)
+        elif tipo == tipo_prioritario:
+            pesos.append(4)
+        else:
+            pesos.append(1)
+    return random.choices(armas, weights=pesos, k=1)[0]
+
 
 # Base damage is deliberately lower so room upgrades and enchantments remain valuable.
 for _arma in TODAS_ARMAS:

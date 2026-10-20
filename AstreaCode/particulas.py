@@ -17,13 +17,13 @@ class GerenciadorParticulas:
                 'cor': cor
             })
 
-    def criar_texto_dano(self, x, y, texto, cor, destaque=False):
+    def criar_texto_dano(self, x, y, texto, cor, critico=False):
         self.textos_flutuantes.append({
             'x': x, 'y': y,
             'texto': str(texto),
             'cor': cor,
-            'vida': 36 if destaque else 30,
-            'destaque': destaque,
+            'vida': 38 if critico else 30,
+            'critico': critico,
         })
 
     def atualizar_e_desenhar(self, tela, fonte):
@@ -38,12 +38,10 @@ class GerenciadorParticulas:
         for t in self.textos_flutuantes[:]:
             t['y'] -= 1
             t['vida'] -= 1
-            txt_surf = fonte.render(t['texto'], True, t['cor'])
-            if t.get('destaque'):
-                txt_surf = pygame.transform.scale(
-                    txt_surf,
-                    (max(1, int(txt_surf.get_width() * 1.2)), max(1, int(txt_surf.get_height() * 1.2))),
-                )
-            tela.blit(txt_surf, (t['x'], t['y']))
+            fonte_popup = pygame.font.Font(
+                None, 28 if t.get("critico") else 19
+            )
+            txt_surf = fonte_popup.render(t['texto'], True, t['cor'])
+            tela.blit(txt_surf, (int(t['x'] - txt_surf.get_width() / 2), int(t['y'])))
             if t['vida'] <= 0:
                 self.textos_flutuantes.remove(t)

@@ -1,5 +1,6 @@
 # main.py
 import random
+import copy
 import pygame
 import sys
 import math
@@ -46,8 +47,21 @@ from personagens import RACES_AND_CLASSES
 from narrativa import (
     FRAGMENTOS_BIOMAS, desbloquear_fragmento, texto_fragmento,
 )
+from npc_hub import SalaNPCs, comprar_servico_npc, aplicar_servicos_npc
+from plataforma import IS_MOBILE, ControlesTouch
+from combate_avancado import (
+    ControleCombate,
+    HABILIDADES_MITICAS,
+    NOMES_HABILIDADES,
+    arma_mitica_id,
+    usar_habilidade_mitica,
+    atualizar_conjuracao_mitica,
+    registrar_baixa_vida,
+    desenhar_efeito_vida_baixa,
+)
 
 pygame.init()
+CONFIG_JOGO_PADRAO = copy.deepcopy(CONFIG_JOGO)
 dados_salvos = carregar_dados()
 if isinstance(dados_salvos.get("configuracoes"), dict):
     CONFIG_JOGO.update(dados_salvos["configuracoes"])
@@ -57,11 +71,15 @@ if CONFIG_JOGO.get("classe_jogador") not in RACES_AND_CLASSES["classes"]:
     CONFIG_JOGO["classe_jogador"] = "Guerreiro"
 controles_jogo = normalizar_controles(CONFIG_JOGO)
 pygame.joystick.init()
-tela = pygame.display.set_mode(
-    (LARGURA, ALTURA), pygame.FULLSCREEN if CONFIG_JOGO.get("fullscreen") else 0
-)
+flags_tela = 0
+if IS_MOBILE:
+    flags_tela = pygame.FULLSCREEN | pygame.SCALED
+elif CONFIG_JOGO.get("fullscreen"):
+    flags_tela = pygame.FULLSCREEN
+tela = pygame.display.set_mode((LARGURA, ALTURA), flags_tela)
 pygame.display.set_caption("ASTREA")
 relogio = pygame.time.Clock()
+controles_touch = ControlesTouch()
 
 audio = GerenciadorAudio()
 audio.atualizar_volumes(CONFIG_JOGO)
@@ -73,6 +91,7 @@ index_tela = TelaIndexCodex()
 tela_conquistas = TelaConquistasBestiario()
 menu_config = MenuConfiguracoes()
 menu_inicial = MenuInicial()
+hub_npcs = SalaNPCs()
 inventario_tela = TelaInventario()
 missoes_tela = TelaMissoes()
 
@@ -102,13 +121,36 @@ def sincronizar_jogador2():
         player2 = None
 
 
+def ativar_perfil_selecionado():
+    global dados_salvos, controles_jogo, player, player2, pet_ativo
+    global status_jogador, status_jogador2
+    dados_salvos = carregar_dados()
+    CONFIG_JOGO.clear()
+    CONFIG_JOGO.update(copy.deepcopy(CONFIG_JOGO_PADRAO))
+    configuracoes = dados_salvos.get("configuracoes", {})
+    if isinstance(configuracoes, dict):
+        CONFIG_JOGO.update(configuracoes)
+    if CONFIG_JOGO.get("raca_jogador") not in RACES_AND_CLASSES["races"]:
+        CONFIG_JOGO["raca_jogador"] = "Humano"
+    if CONFIG_JOGO.get("classe_jogador") not in RACES_AND_CLASSES["classes"]:
+        CONFIG_JOGO["classe_jogador"] = "Guerreiro"
+    controles_jogo = normalizar_controles(CONFIG_JOGO)
+    audio.atualizar_volumes(CONFIG_JOGO)
+    player = Jogador(400, 300)
+    player2 = Jogador(440, 300, numero_jogador=2) if CONFIG_JOGO.get("coop_local") else None
+    status_jogador = GerenciadorStatus()
+    status_jogador2 = GerenciadorStatus()
+    pet_ativo = preparar_pet(player)
+    conquistas_mgr.dados = dados_salvos
+
+
 def salvar_configuracao():
     dados = carregar_dados()
     dados["configuracoes"] = {
         chave: valor for chave, valor in CONFIG_JOGO.items()
         if chave in ("idioma", "modo_tiro", "volume_musica", "volume_sfx", "modo_dificuldade",
                      "raca_jogador", "classe_jogador", "coop_local", "fullscreen", "controles",
-                     "mostrar_missoes", "mostrar_efeitos")
+                     "mostrar_missoes", "mostrar_efeitos", "modificadores_run")
     }
     salvar_dados(dados)
 
@@ -188,6 +230,47 @@ def alcance_arma_melee(arma):
     return 125
 
 
+def danificar_obstaculo(sala, obstaculo, dano, dono):
+    if obstaculo.get("tipo") not in ("caixa", "vaso", "terminal"):
+        return False
+    obstaculo["vida"] = obstaculo.get("vida", 1) - max(1, int(dano // 25))
+    if obstaculo["vida"] > 0:
+        return False
+    if obstaculo in sala.obstaculos:
+        sala.obstaculos.remove(obstaculo)
+    recompensa = {"caixa": 10, "vaso": 15, "terminal": 25}.get(
+        obstaculo.get("tipo"), 10
+    )
+    dono.ganhar_ouro(recompensa)
+    particulas.criar_texto_dano(
+        obstaculo["rect"].centerx, obstaculo["rect"].y - 12,
+        f"+{recompensa} {t('ouro', CONFIG_JOGO.get('idioma', 'PT'))}",
+        AMARELO,
+    )
+    return True
+
+
+def tentar_invocar_sombra(jogador, arma, inimigo, agora):
+    if (
+        (arma or {}).get("mitica_id") != "adaga_sombra"
+        or inimigo.get("hp", 1) > 0
+        or inimigo.get("sombra_invocada")
+        or random.random() >= 0.18
+    ):
+        return
+    inimigo["sombra_invocada"] = True
+    tipo = random.choice(("tank", "curandeiro", "dps"))
+    jogador.soldados_sombra.append({
+        "tipo": tipo, "fim": agora + 10000, "proximo_ataque": agora,
+        "x": inimigo["rect"].centerx, "y": inimigo["rect"].centery,
+    })
+    jogador.soldados_sombra = jogador.soldados_sombra[-3:]
+    particulas.criar_texto_dano(
+        inimigo["rect"].centerx, inimigo["rect"].y - 14,
+        "SOMBRA ERGUIDA", ROXO_UI,
+    )
+
+
 def alvo_melee_automatico(jogador, inimigos, arma):
     alcance = alcance_arma_melee(arma)
     alvos_no_alcance = []
@@ -241,6 +324,16 @@ def aplicar_efeitos_encantamento(arma, inimigo, jogador, dano, tempo_atual):
                 "fim": tempo_atual + 3000,
                 "proximo": tempo_atual,
             }
+    nome_arma = (arma or {}).get("nome", "").casefold()
+    if (
+        getattr(jogador, "classe", None) == "Ladrão"
+        and any(palavra in nome_arma for palavra in ("adaga", "punhal", "daga"))
+        and random.random() < 0.65
+    ):
+        inimigo["sangramento_fim"] = max(
+            inimigo.get("sangramento_fim", 0), tempo_atual + 4500
+        )
+        inimigo["sangramento_tick"] = tempo_atual
     roubo = min(0.35, bonus_encantamento(arma, "roubo_vida"))
     cura = max(0, int(dano * roubo))
     if cura:
@@ -248,15 +341,38 @@ def aplicar_efeitos_encantamento(arma, inimigo, jogador, dano, tempo_atual):
 
 
 def usar_magia(jogador, indice, tempo_atual):
+    mitica_id = arma_mitica_id(jogador.equipado_arma)
+    if usar_habilidade_mitica(
+        jogador, indice, tempo_atual, pygame.mouse.get_pos(),
+        sala_atual.inimigos, projeteis, particulas, audio, estatisticas_run,
+        lambda arma, alvo, mult: dano_arma(arma, alvo, mult),
+    ):
+        if mitica_id:
+            conjuracao = getattr(jogador, "conjuracao_explosao", None)
+            if conjuracao:
+                particulas.criar_texto_dano(
+                    jogador.rect.centerx, jogador.rect.y - 24,
+                    t("explosao_conjurando", lang).format(segundos="0.8"),
+                    LARANJA, True,
+                )
+                return
+            particulas.criar_texto_dano(
+                jogador.rect.centerx, jogador.rect.y - 24,
+                t(f"mitica_{mitica_id}_{indice}", lang), ROXO_UI, True,
+            )
+        return
+    if indice == 3:
+        usar_habilidade_suprema(jogador, tempo_atual)
+        return
     arma = jogador.equipado_arma
     if not arma or arma.get("tipo_arma") != "mage":
         particulas.criar_texto_dano(
             jogador.rect.centerx, jogador.rect.y - 15, t("precisa_cajado", lang), AMARELO
         )
         return
-    custos = (10, 30, 70, 150)
-    danos = (30, 60, 120, 300)
-    raios = (150, 200, 250, float("inf"))
+    custos = (10, 30, 70)
+    danos = (30, 60, 120)
+    raios = (150, 200, 250)
     custo = custo_mana_com_sinergia(jogador, custos[indice])
     if jogador.mana < custo:
         particulas.criar_texto_dano(
@@ -277,7 +393,114 @@ def usar_magia(jogador, indice, tempo_atual):
         if distancia <= raios[indice]:
             critico = random.random() < jogador.chance_crit
             dano = dano_magia_base(jogador, danos[indice], critico, tempo_atual)
-            aplicar_dano_inimigo(inimigo, dano, critico, tempo_atual, audio, estatisticas_run)
+            dano_aplicado = aplicar_dano_inimigo(
+                inimigo, dano, critico, tempo_atual, audio, estatisticas_run
+            )
+            acumular_carga_suprema(jogador, dano_aplicado)
+    if arma.get("mitica_id") == "cajado_explosao":
+        jogador.poder_mantra = min(100, getattr(jogador, "poder_mantra", 0) + 10)
+
+
+def acumular_carga_suprema(jogador, dano):
+    if dano > 0:
+        jogador.carga_suprema = min(
+            100.0, getattr(jogador, "carga_suprema", 0.0) + min(10.0, dano * 0.05)
+        )
+
+
+def usar_habilidade_suprema(jogador, tempo_atual):
+    carga = getattr(jogador, "carga_suprema", 0.0)
+    if carga < 100:
+        particulas.criar_texto_dano(
+            jogador.rect.centerx, jogador.rect.y - 15,
+            t("ultimate_carga", lang).format(valor=int(carga)), CIANO,
+        )
+        return
+
+    classe = getattr(jogador, "classe", "Guerreiro")
+    if classe not in RACES_AND_CLASSES["classes"]:
+        classe = "Atirador"
+    inimigos = list(sala_atual.inimigos)
+    if not inimigos:
+        particulas.criar_texto_dano(
+            jogador.rect.centerx, jogador.rect.y - 15, t("ultimate_sem_alvo", lang), AMARELO
+        )
+        return
+
+    jogador.carga_suprema = 0
+    audio.tocar_som("magia")
+    chave_classe = {
+        "Guerreiro": "guerreiro",
+        "Espadachim": "espadachim",
+        "Mago": "mago",
+        "Atirador": "atirador",
+        "Caçador": "cacador",
+        "Ladrão": "ladrao",
+    }[classe]
+    particulas.criar_texto_dano(
+        jogador.rect.centerx, jogador.rect.y - 20,
+        t("ultimate_" + chave_classe, lang), DOURADO_UI,
+    )
+
+    alvos = inimigos
+    if classe == "Atirador":
+        alvos = sorted(
+            inimigos,
+            key=lambda inimigo: math.dist(jogador.rect.center, inimigo["rect"].center),
+        )[:4]
+    elif classe == "Ladrão":
+        alvos = [min(
+            inimigos,
+            key=lambda inimigo: math.dist(jogador.rect.center, inimigo["rect"].center),
+        )]
+
+    dano_base = {
+        "Guerreiro": 210,
+        "Espadachim": 190,
+        "Mago": 270,
+        "Atirador": 155,
+        "Caçador": 105,
+        "Ladrão": 290,
+    }[classe]
+    curou = 0
+    for inimigo in alvos:
+        distancia = math.dist(jogador.rect.center, inimigo["rect"].center)
+        if classe == "Guerreiro" and distancia > 175:
+            continue
+        if classe == "Espadachim":
+            if distancia > 260:
+                continue
+            dx = inimigo["rect"].centerx - jogador.rect.centerx
+            dy = inimigo["rect"].centery - jogador.rect.centery
+            angulo_alvo = math.degrees(math.atan2(-dy, dx))
+            diferenca = abs((angulo_alvo - jogador.angulo_olhando + 180) % 360 - 180)
+            if diferenca > 85:
+                continue
+        if classe == "Atirador" and distancia > 520:
+            continue
+        if classe == "Caçador" and distancia > 430:
+            continue
+        if classe == "Ladrão" and distancia > 340:
+            continue
+        critico = random.random() < jogador.chance_crit
+        dano = dano_magia_base(jogador, dano_base, critico, tempo_atual)
+        aplicado = aplicar_dano_inimigo(
+            inimigo, dano, critico, tempo_atual, audio, estatisticas_run
+        )
+        aplicar_efeitos_encantamento(
+            jogador.equipado_arma, inimigo, jogador, aplicado, tempo_atual
+        )
+        particulas.criar_explosao(
+            inimigo["rect"].centerx, inimigo["rect"].centery, ROXO_UI
+        )
+        if classe == "Caçador" and aplicado:
+            inimigo["congelado_fim"] = max(
+                inimigo.get("congelado_fim", 0), tempo_atual + 2600
+            )
+        if classe == "Ladrão":
+            curou += max(0, int(aplicado * 0.15))
+    if curou:
+        jogador.hp = min(jogador.hp_max, jogador.hp + curou)
 
 
 def dano_magia_base(jogador, dano, critico, tempo_atual):
@@ -304,7 +527,26 @@ def dano_arma(arma, jogador, multiplicador_dano):
         * getattr(jogador, "multiplicador_raca_classe", 1.0)
         * getattr(jogador, "multiplicador_dano_cosmetico", 1.0)
     )
+    if arma.get("mitica_id") == "espada_berserk":
+        vida = max(0.0, min(1.0, jogador.hp / max(1, jogador.hp_max)))
+        dano *= 1 + (1 - vida) * 1.25
+    if (
+        arma.get("mitica_id") == "adaga_sombra"
+        and pygame.time.get_ticks() < getattr(jogador, "bonus_dano_sombra_ate", 0)
+    ):
+        dano *= 1.2
+    if arma.get("mitica_id") == "espada_berserk":
+        if any(
+            sombra["tipo"] == "dps"
+            and sombra["fim"] > pygame.time.get_ticks()
+            for sombra in getattr(jogador, "soldados_sombra", [])
+        ):
+            dano *= 1.15
+    if pygame.time.get_ticks() < getattr(jogador, "parry_crit_ate", 0):
+        dano *= 1.5
     critico = random.random() < min(0.85, jogador.chance_crit + bonus_encantamento(arma, "critico"))
+    if pygame.time.get_ticks() < getattr(jogador, "parry_crit_ate", 0):
+        critico = random.random() < min(0.95, jogador.chance_crit * 2)
     if critico:
         dano *= jogador.mult_crit
     return max(5, arredondar_para_5(dano)), critico
@@ -336,6 +578,54 @@ def desenhar_cone_corte(tela, jogador, angulo, alcance, tempo_fim, tempo_atual):
     tela.blit(efeito, (0, 0))
 
 
+def desenhar_hud_mitica(surface, jogador, tempo_atual, idioma):
+    mitica_id = arma_mitica_id(jogador.equipado_arma)
+    habilidade = HABILIDADES_MITICAS.get(mitica_id)
+    if not habilidade:
+        return
+    slots = habilidade["slots"]
+    largura_slot, altura_slot, espacamento = 72, 54, 8
+    inicio_x = LARGURA - 14 - len(slots) * largura_slot - (len(slots) - 1) * espacamento
+    y = ALTURA - altura_slot - 10
+    for coluna, indice in enumerate(slots):
+        rect = pygame.Rect(
+            inicio_x + coluna * (largura_slot + espacamento), y,
+            largura_slot, altura_slot,
+        )
+        cooldown_ate = jogador.cooldowns_miticos.get(indice, 0)
+        restante = max(0, cooldown_ate - tempo_atual)
+        custo = habilidade["custos"][indice]
+        indisponivel = restante > 0 or jogador.mana < custo
+        pygame.draw.rect(
+            surface, PAINEL_UI_CLARO if not indisponivel else (28, 30, 40),
+            rect, border_radius=7,
+        )
+        pygame.draw.rect(
+            surface, CIANO_UI if not indisponivel else BORDA_UI,
+            rect, 1, border_radius=7,
+        )
+        tecla = ("H", "J", "K", "L")[indice]
+        label = FONTE_PEQUENA.render(
+            f"[{tecla}] {t(f'mitica_{mitica_id}_{indice}', idioma)}",
+            True, BRANCO if not indisponivel else CINZA_CLARO,
+        )
+        surface.blit(label, (rect.x + 4, rect.y + 5))
+        mana_label = FONTE_PEQUENA.render(
+            f"{custo} MP", True, CIANO_UI if jogador.mana >= custo else CINZA_CLARO
+        )
+        surface.blit(mana_label, (rect.x + 4, rect.bottom - 16))
+        if restante:
+            mascara = pygame.Surface(rect.size, pygame.SRCALPHA)
+            mascara.fill((5, 7, 14, 175))
+            surface.blit(mascara, rect.topleft)
+            segundos = FONTE_SYS.render(f"{restante / 1000:.1f}", True, BRANCO)
+            surface.blit(
+                segundos,
+                (rect.centerx - segundos.get_width() // 2,
+                 rect.centery - segundos.get_height() // 2),
+            )
+
+
 pet_ativo = preparar_pet(player)
 
 estado_jogo = "MENU_INICIAL"
@@ -347,6 +637,9 @@ sala_atual, mapa_salas = gerar_andar(bioma_atual, andar_atual)
 marcar_inicio_sala(sala_atual)
 
 tempo_ultimo_tiro = 0
+controle_combate = ControleCombate()
+ultimo_estado_ataque = False
+ultimo_estado_defesa = False
 projeteis = []
 projeteis_inimigos = []
 
@@ -380,9 +673,12 @@ tempo_aviso = 0
 
 
 def interagir_bau(tecla, jogador=None):
-    if sala_atual.tipo not in ("RECOMPENSA", "MIMICO") or not sala_atual.baus:
-        return False
     jogador = jogador or player
+    if sala_atual.interagir_obstaculo(jogador, particulas):
+        audio.tocar_som("bau")
+        return True
+    if sala_atual.tipo not in ("RECOMPENSA", "MIMICO", "TESOURO", "OVERCLOCK") or not sala_atual.baus:
+        return False
     if tecla in (pygame.K_1, pygame.K_2):
         indice = tecla - pygame.K_1
     else:
@@ -403,6 +699,47 @@ def interagir_bau(tecla, jogador=None):
         else:
             audio.tocar_som("bau")
     return aberto
+
+
+def atualizar_obstaculos():
+    jogadores = (
+        (player, status_jogador, "ultimo_dano_p1"),
+        (player2, status_jogador2, "ultimo_dano_p2"),
+    )
+    for obstaculo in sala_atual.obstaculos[:]:
+        tipo = obstaculo["tipo"]
+        if tipo == "bomba" and not obstaculo["armada"]:
+            if any(
+                alvo and alvo.hp > 0
+                and math.dist(alvo.rect.center, obstaculo["rect"].center) < 58
+                for alvo, _, _ in jogadores
+            ):
+                obstaculo["armada"] = True
+                obstaculo["detonar_em"] = tempo_atual + 900
+        if tipo == "espinhos":
+            for alvo, status, chave in jogadores:
+                if (
+                    alvo and alvo.hp > 0 and alvo.rect.colliderect(obstaculo["rect"])
+                    and tempo_atual - obstaculo[chave] >= 1100
+                ):
+                    obstaculo[chave] = tempo_atual
+                    aplicar_dano_player(
+                        alvo, particulas, 10, tempo_atual, status,
+                        efeito="lentidao", duracao_efeito=700, audio_manager=audio,
+                    )
+        if tipo == "bomba" and obstaculo["armada"] and tempo_atual >= obstaculo["detonar_em"]:
+            centro = obstaculo["rect"].center
+            for alvo, status, _ in jogadores:
+                if alvo and alvo.hp > 0 and math.dist(alvo.rect.center, centro) <= 105:
+                    aplicar_dano_player(
+                        alvo, particulas, 30, tempo_atual, status,
+                        efeito="queimadura", duracao_efeito=1800, audio_manager=audio,
+                    )
+            for inimigo in sala_atual.inimigos[:]:
+                if math.dist(inimigo["rect"].center, centro) <= 105:
+                    inimigo["hp"] -= 45
+            particulas.criar_explosao(centro[0], centro[1], AMARELO)
+            sala_atual.obstaculos.remove(obstaculo)
 
 
 def iniciar_transicao(acao):
@@ -456,6 +793,8 @@ def avancar_andar():
     estado_jogo = "JOGANDO"
 
 rodando = True
+modo_musica_atual = None
+ultima_troca_musica = 0
 while rodando:
     sincronizar_jogador2()
     tempo_atual = pygame.time.get_ticks()
@@ -472,12 +811,69 @@ while rodando:
         if not joystick.get_init():
             joystick.init()
         joysticks.append(joystick)
-    if estado_jogo in ("MENU_INICIAL", "CONFIGURACOES", "GAME_OVER"):
-        audio.tocar_musica("menu")
+    if estado_jogo in ("MENU_INICIAL", "NPC_HUB", "CONFIGURACOES", "GAME_OVER"):
+        modo_musica = "menu"
     else:
-        audio.tocar_musica(f"bioma_{bioma_atual}")
+        chefao = next(
+            (inimigo for inimigo in sala_atual.inimigos if inimigo.get("tipo") == "boss"),
+            None,
+        )
+        jogadores_vivos = [jogador for jogador in (player, player2) if jogador and jogador.hp > 0]
+        vida_baixa = bool(jogadores_vivos) and min(
+            jogador.hp / max(1, jogador.hp_max) for jogador in jogadores_vivos
+        ) <= 0.30
+        em_perigo = any(
+            math.dist(inimigo["rect"].center, jogador.rect.center) < 260
+            for inimigo in sala_atual.inimigos
+            for jogador in jogadores_vivos
+        )
+        if chefao and chefao.get("fase_atual", 1) >= 2:
+            modo_musica = "chefe_fase"
+        elif chefao:
+            modo_musica = "chefe"
+        elif vida_baixa:
+            modo_musica = "vida_baixa"
+        elif em_perigo:
+            modo_musica = "perigo"
+        else:
+            modo_musica = "exploracao"
+    if modo_musica != modo_musica_atual and (
+        modo_musica_atual is None
+        or modo_musica == "menu"
+        or pygame.time.get_ticks() - ultima_troca_musica >= 2500
+    ):
+        if modo_musica == "menu":
+            audio.tocar_musica("menu")
+        else:
+            audio.tocar_musica_dinamica(bioma_atual, modo_musica)
+        modo_musica_atual = modo_musica
+        ultima_troca_musica = pygame.time.get_ticks()
 
     for event in pygame.event.get():
+        if event.type == pygame.MOUSEBUTTONDOWN and estado_jogo == "JOGANDO":
+            if event.button == 1 and CONFIG_JOGO.get("modo_tiro") == "MANUAL":
+                controle_combate.iniciar_ataque(tempo_atual)
+                continue
+            if event.button == 3:
+                controle_combate.ativar_escudo(tempo_atual)
+                continue
+        if (
+            event.type == pygame.MOUSEBUTTONUP
+            and event.button == 1
+            and estado_jogo == "JOGANDO"
+            and CONFIG_JOGO.get("modo_tiro") == "MANUAL"
+        ):
+            controle_combate.soltar_ataque(tempo_atual)
+            continue
+        touch_consumido, teclas_touch = controles_touch.processar_evento(
+            event, tela, estado_jogo == "JOGANDO"
+        )
+        for tecla_touch in teclas_touch:
+            pygame.event.post(pygame.event.Event(
+                pygame.KEYDOWN, key=tecla_touch, unicode="",
+            ))
+        if touch_consumido:
+            continue
         if event.type == pygame.QUIT:
             rodando = False
         if event.type == pygame.JOYBUTTONDOWN and estado_jogo == "CONFIGURACOES":
@@ -506,8 +902,26 @@ while rodando:
                 }
                 if event.button == mapa_botoes["interagir"]:
                     if chave_jogador == "P1":
-                        if not interagir_bau(pygame.K_e) and sala_atual.tipo not in ("RECOMPENSA", "MIMICO"):
-                            if sala_atual.tipo in ("RESGATE", "NPC_ENCONTRO", "REVIVER_P2", "ENIGMA"):
+                        if not interagir_bau(pygame.K_e):
+                            if sala_atual.tipo == "OVERCLOCK":
+                                evento_interacao = pygame.event.Event(
+                                    pygame.KEYDOWN, key=pygame.K_e, unicode="e"
+                                )
+                                sala_atual.desenhar_conteudo_especial(
+                                    tela, player, evento_interacao, particulas,
+                                    status_jogador, player2,
+                                )
+                            elif sala_atual.tipo == "IMPOSTOR":
+                                evento_interacao = pygame.event.Event(
+                                    pygame.KEYDOWN, key=pygame.K_e, unicode="e"
+                                )
+                                sala_atual.desenhar_conteudo_especial(
+                                    tela, player, evento_interacao, particulas,
+                                    status_jogador, player2,
+                                )
+                            elif sala_atual.tipo in ("RECOMPENSA", "MIMICO", "TESOURO"):
+                                pass
+                            elif sala_atual.tipo in ("RESGATE", "NPC_ENCONTRO", "REVIVER_P2", "ENIGMA", "OBELISCO", "POCO", "RITUAL"):
                                 evento_interacao = pygame.event.Event(
                                     pygame.KEYDOWN, key=pygame.K_1, unicode="1"
                                 )
@@ -518,7 +932,15 @@ while rodando:
                             else:
                                 estado_jogo = "INVENTARIO"
                     else:
-                        if sala_atual.tipo in ("RESGATE", "NPC_ENCONTRO", "REVIVER_P2", "ENIGMA"):
+                        if sala_atual.tipo in ("OVERCLOCK", "IMPOSTOR") and not interagir_bau(pygame.K_e, jogador_controle):
+                            evento_interacao = pygame.event.Event(
+                                pygame.KEYDOWN, key=pygame.K_e, unicode="e"
+                            )
+                            sala_atual.desenhar_conteudo_especial(
+                                tela, player, evento_interacao, particulas,
+                                status_jogador, player2,
+                            )
+                        elif sala_atual.tipo in ("RESGATE", "NPC_ENCONTRO", "REVIVER_P2", "ENIGMA", "OBELISCO", "POCO", "RITUAL"):
                             evento_interacao = pygame.event.Event(
                                 pygame.KEYDOWN, key=pygame.K_1, unicode="1"
                             )
@@ -557,11 +979,24 @@ while rodando:
         elif event.type == pygame.MOUSEWHEEL and estado_jogo == "CONQUISTAS":
             tela_conquistas.tratar_evento(event)
         if event.type == pygame.MOUSEBUTTONDOWN:
+            if (
+                IS_MOBILE
+                and controles_touch.eh_botao_touch(
+                    event.pos, tela, estado_jogo == "JOGANDO"
+                )
+            ):
+                continue
             if event.button == 1: 
                 audio.tocar_som("menu")
                 clicou = True
                 if estado_jogo == "MENU_INICIAL":
                     res = menu_inicial.tratar_clique(pos_mouse, CONFIG_JOGO)
+                    if res == "PERFIL_TROCADO":
+                        ativar_perfil_selecionado()
+                    elif res == "IR_NPCS":
+                        estado_jogo = "NPC_HUB"
+                    if estado_jogo == "NPC_HUB":
+                        continue
                     if res == "INICIAR_RUN":
                         def reset_game():
                             global andar_atual, bioma_atual, ordem_biomas, sala_atual, mapa_salas, estado_jogo, exibir_intro_andar, intro_timer, estatisticas_run, player, player2, tempo_inicio_run, inimigos_mgr, projeteis, projeteis_inimigos, status_jogador, status_jogador2, pet_ativo, infinito_ativo, run_registrada, ultimo_ataque_p2, mobs_missoes_reportados, elites_missoes_reportados, modo_espectador
@@ -571,6 +1006,13 @@ while rodando:
                             bioma_atual = ordem_biomas[0]
                             player = Jogador(400, 300)
                             player2 = Jogador(440, 300, numero_jogador=2) if CONFIG_JOGO.get("coop_local") else None
+                            dados_pre_run = carregar_dados()
+                            servicos_npc = dados_pre_run.pop("preparacao_npc_run", {})
+                            if servicos_npc:
+                                salvar_dados(dados_pre_run)
+                                for jogador_preparado in (player, player2):
+                                    if jogador_preparado:
+                                        aplicar_servicos_npc(jogador_preparado, servicos_npc)
                             registrar_fragmento_bioma(bioma_atual)
                             pet_ativo = preparar_pet(player)
                             inimigos_mgr = GerenciadorInimigos()
@@ -608,6 +1050,15 @@ while rodando:
                         webbrowser.open_new_tab("https://discord.gg/zsXp6Nf6zF")
                     elif res == "SAIR":
                         rodando = False
+                elif estado_jogo == "NPC_HUB":
+                    acao_hub = hub_npcs.tratar_clique(pos_mouse)
+                    if acao_hub == "VOLTAR":
+                        estado_jogo = "MENU_INICIAL"
+                    elif acao_hub == "COMPRAR":
+                        _, chave_aviso = comprar_servico_npc(hub_npcs.alvo_npc)
+                        hub_npcs.aviso = t(chave_aviso, lang)
+                    elif acao_hub == "EVOLUIR_PET":
+                        hub_npcs.aviso = hub_npcs.evoluir_pet(lang)
                 elif estado_jogo == "INDEX":
                     acao_index = index_tela.tratar_evento(event, pos_mouse)
                     if acao_index == "VOLTAR_LOBBY":
@@ -630,7 +1081,13 @@ while rodando:
                                 fragmento_selecionado = indice
                                 break
                 elif estado_jogo == "INVENTARIO":
-                    inventario_tela.tratar_clique(pos_mouse, player)
+                    cura_pocao = inventario_tela.tratar_clique(pos_mouse, player)
+                    if cura_pocao:
+                        particulas.criar_texto_dano(
+                            player.rect.centerx, player.rect.y - 20,
+                            f"+{cura_pocao}", VERDE,
+                        )
+                        audio.tocar_som("cura")
                 elif estado_jogo == "CONFIGURACOES":
                     res = menu_config.tratar_clique(pos_mouse, CONFIG_JOGO)
                     if res == "VOLTAR":
@@ -718,8 +1175,30 @@ while rodando:
                         registrar_fim_run()
                         player.em_run = False
                         estado_jogo = "MENU_INICIAL"
+            elif event.button == 3 and estado_jogo == "INVENTARIO":
+                inventario_tela.alternar_protecao(player, pos_mouse)
 
         if event.type == pygame.KEYDOWN:
+            if estado_jogo == "NPC_HUB":
+                acao_hub = hub_npcs.tratar_tecla(event.key, lang)
+                if acao_hub == "VOLTAR":
+                    estado_jogo = "MENU_INICIAL"
+                elif acao_hub == "COMPRAR":
+                    _, chave_aviso = comprar_servico_npc(hub_npcs.alvo_npc)
+                    hub_npcs.aviso = t(chave_aviso, lang)
+                continue
+            if estado_jogo == "INVENTARIO" and event.key == pygame.K_f:
+                inventario_tela.alternar_protecao(player)
+                continue
+            if estado_jogo == "JOGANDO" and event.key == pygame.K_p:
+                cura_pocao = inventario_tela.usar_pocao(player)
+                if cura_pocao:
+                    particulas.criar_texto_dano(
+                        player.rect.centerx, player.rect.y - 20,
+                        f"+{cura_pocao}", VERDE,
+                    )
+                    audio.tocar_som("cura")
+                continue
             if (
                 estado_jogo == "JOGANDO"
                 and event.key == pygame.K_TAB
@@ -744,7 +1223,14 @@ while rodando:
                 and controles_jogo["P2"]["dispositivo"] == "teclado"
                 and event.key == controles_jogo["P2"].get("interagir")
             ):
-                if sala_atual.tipo in ("RESGATE", "NPC_ENCONTRO", "REVIVER_P2", "ENIGMA"):
+                if sala_atual.tipo in ("OVERCLOCK", "IMPOSTOR"):
+                    if not interagir_bau(pygame.K_e, player2):
+                        sala_atual.desenhar_conteudo_especial(
+                            tela, player, pygame.event.Event(
+                                pygame.KEYDOWN, key=pygame.K_e, unicode="e"
+                            ), particulas, status_jogador, player2,
+                        )
+                elif sala_atual.tipo in ("RESGATE", "NPC_ENCONTRO", "REVIVER_P2", "ENIGMA", "OBELISCO", "POCO", "RITUAL"):
                     sala_atual.desenhar_conteudo_especial(
                         tela, player, pygame.event.Event(
                             pygame.KEYDOWN, key=pygame.K_1, unicode="1"
@@ -768,7 +1254,12 @@ while rodando:
             if tecla_jogo == pygame.K_e:
                 if estado_jogo == "JOGANDO":
                     if not interagir_bau(tecla_jogo):
-                        if sala_atual.tipo in ("RESGATE", "NPC_ENCONTRO", "REVIVER_P2", "ENIGMA"):
+                        if sala_atual.tipo in ("OVERCLOCK", "IMPOSTOR"):
+                            sala_atual.desenhar_conteudo_especial(
+                                tela, player, evento_tecla, particulas,
+                                status_jogador, player2,
+                            )
+                        elif sala_atual.tipo in ("RESGATE", "NPC_ENCONTRO", "REVIVER_P2", "ENIGMA", "OBELISCO", "POCO", "RITUAL"):
                             evento_interacao = pygame.event.Event(
                                 pygame.KEYDOWN, key=pygame.K_1, unicode="1"
                             )
@@ -776,7 +1267,7 @@ while rodando:
                                 tela, player, evento_interacao, particulas,
                                 status_jogador, player2,
                             )
-                        elif sala_atual.tipo not in ("RECOMPENSA", "MIMICO"):
+                        elif sala_atual.tipo not in ("RECOMPENSA", "MIMICO", "TESOURO", "OVERCLOCK"):
                             estado_jogo = "INVENTARIO"
                 elif estado_jogo == "INVENTARIO":
                     estado_jogo = "JOGANDO"
@@ -809,50 +1300,35 @@ while rodando:
                 if player.em_dash and not dash_antes:
                     audio.tocar_som("dash")
             elif estado_jogo == "JOGANDO" and player.hp > 0 and not modo_espectador:
-                # Sistema de Feitiços (H, J, K, L)
-                if tecla_jogo in (pygame.K_h, pygame.K_j, pygame.K_k, pygame.K_l) and (
-                    not player.equipado_arma or player.equipado_arma.get("tipo_arma") != "mage"
-                ):
-                    particulas.criar_texto_dano(player.rect.centerx, player.rect.y - 15, t("precisa_cajado", lang), AMARELO)
-                elif tecla_jogo == pygame.K_h and player.mana >= custo_mana_com_sinergia(player, 10):
-                    custo_magia = custo_mana_com_sinergia(player, 10)
-                    audio.tocar_som("magia")
-                    player.mana -= custo_magia
-                    particulas.criar_texto_dano(player.rect.centerx, player.rect.y - 15, f"Feitiço Fraco (-{custo_magia})", CIANO)
-                    for inimigo in sala_atual.inimigos:
-                        if math.hypot(inimigo['rect'].centerx - player.rect.centerx, inimigo['rect'].centery - player.rect.centery) < 150:
-                            eh_critico = random.random() < player.chance_crit
-                            aplicar_dano_inimigo(inimigo, dano_magia_base(player, 30, eh_critico, tempo_atual), eh_critico, tempo_atual, audio, estatisticas_run)
-                elif tecla_jogo == pygame.K_j and player.mana >= custo_mana_com_sinergia(player, 30):
-                    custo_magia = custo_mana_com_sinergia(player, 30)
-                    audio.tocar_som("magia")
-                    player.mana -= custo_magia
-                    particulas.criar_texto_dano(player.rect.centerx, player.rect.y - 15, f"Feitiço Médio (-{custo_magia})", CIANO)
-                    for inimigo in sala_atual.inimigos:
-                        if math.hypot(inimigo['rect'].centerx - player.rect.centerx, inimigo['rect'].centery - player.rect.centery) < 200:
-                            eh_critico = random.random() < player.chance_crit
-                            aplicar_dano_inimigo(inimigo, dano_magia_base(player, 60, eh_critico, tempo_atual), eh_critico, tempo_atual, audio, estatisticas_run)
-                elif tecla_jogo == pygame.K_k and player.mana >= custo_mana_com_sinergia(player, 70):
-                    custo_magia = custo_mana_com_sinergia(player, 70)
-                    audio.tocar_som("magia")
-                    player.mana -= custo_magia
-                    particulas.criar_texto_dano(player.rect.centerx, player.rect.y - 15, f"Feitiço Forte (-{custo_magia})", CIANO)
-                    for inimigo in sala_atual.inimigos:
-                        if math.hypot(inimigo['rect'].centerx - player.rect.centerx, inimigo['rect'].centery - player.rect.centery) < 250:
-                            eh_critico = random.random() < player.chance_crit
-                            aplicar_dano_inimigo(inimigo, dano_magia_base(player, 120, eh_critico, tempo_atual), eh_critico, tempo_atual, audio, estatisticas_run)
-                elif tecla_jogo == pygame.K_l and player.mana >= custo_mana_com_sinergia(player, 150):
-                    custo_magia = custo_mana_com_sinergia(player, 150)
-                    audio.tocar_som("magia")
-                    player.mana -= custo_magia
-                    particulas.criar_texto_dano(player.rect.centerx, player.rect.y - 15, f"ULTIMATE (-{custo_magia})!", AMARELO)
-                    for inimigo in sala_atual.inimigos:
-                        eh_critico = random.random() < player.chance_crit
-                        aplicar_dano_inimigo(inimigo, dano_magia_base(player, 300, eh_critico, tempo_atual), eh_critico, tempo_atual, audio, estatisticas_run)
+                indice_magia = {
+                    pygame.K_h: 0,
+                    pygame.K_j: 1,
+                    pygame.K_k: 2,
+                    pygame.K_l: 3,
+                }.get(tecla_jogo)
+                if indice_magia is not None:
+                    usar_magia(player, indice_magia, tempo_atual)
 
     atualizar_transicao()
 
     if estado_jogo == "JOGANDO":
+        if atualizar_conjuracao_mitica(
+            player, tempo_atual, sala_atual.inimigos, particulas,
+            audio, estatisticas_run,
+        ):
+            particulas.criar_texto_dano(
+                player.rect.centerx, player.rect.y - 30,
+                t("explosao_cansaco", lang), LARANJA, True,
+            )
+        if player2 and player2.hp > 0:
+            if atualizar_conjuracao_mitica(
+                player2, tempo_atual, sala_atual.inimigos, particulas,
+                audio, estatisticas_run,
+            ):
+                particulas.criar_texto_dano(
+                    player2.rect.centerx, player2.rect.y - 30,
+                    t("explosao_cansaco", lang), LARANJA, True,
+                )
         player.em_run = True
         estatisticas_run["tempo_segundos"] = int(time.time() - tempo_inicio_run)
         player.mana = min(player.mana_max, player.mana + 0.05)
@@ -881,6 +1357,11 @@ while rodando:
         mult_velocidade_player = stats_dict['multiplicador_velocidade'] * (
             1 + player.buffs_run.get("velocidade", 0) / max(1, player.vel_base)
         ) * (1 + (evento_p1 or {}).get("velocidade", 0))
+        if any(
+            sombra["tipo"] == "dps" and sombra["fim"] > tempo_atual
+            for sombra in getattr(player, "soldados_sombra", [])
+        ):
+            mult_velocidade_player *= 1.08
         mult_dano_player = stats_dict['multiplicador_dano'] * (
             1 + player.buffs_run.get("dano", 0)
         ) * (1 + (evento_p1 or {}).get("dano", 0))
@@ -937,13 +1418,40 @@ while rodando:
             if controles_jogo["P1"]["dispositivo"] == "controle" and joysticks
             else estado_acoes_teclado(teclas, controles_jogo["P1"])
         )
+        acoes_touch = controles_touch.acoes_pressionadas(estado_jogo == "JOGANDO")
+        for acao, pressionada in acoes_touch.items():
+            acoes_p1[acao] = acoes_p1.get(acao, False) or pressionada
+        controle_combate.atualizar_ataque(
+            acoes_p1.get("ataque", False), tempo_atual
+        )
+        defesa_pressionada = acoes_p1.get("defesa", False)
+        if defesa_pressionada and not ultimo_estado_defesa:
+            controle_combate.ativar_escudo(tempo_atual)
+        ultimo_estado_defesa = defesa_pressionada
+        player.escudo_ativo = controle_combate.escudo_ativo(tempo_atual)
+        player.parry_window_ate = controle_combate.janela_parry_ate
         if player.hp > 0 and not modo_espectador:
-            player.mover(acoes_p1, tempo_atual, mult_velocidade_player, controles_jogo["P1"])
+            if tempo_atual >= getattr(player, "imovel_ate", 0):
+                player.mover(
+                    acoes_p1, tempo_atual,
+                    mult_velocidade_player * (0.58 if player.escudo_ativo else 1.0),
+                    controles_jogo["P1"],
+                    sala_atual.obstaculos,
+                )
+            else:
+                player.movendo = False
+                player.vel_x = 0
+                player.vel_y = 0
             if acoes_p1.get("dash") and not player.em_dash:
                 dash_antes_p1 = player.em_dash
                 player.executar_dash(acoes_p1, tempo_atual, controles_jogo["P1"])
                 if player.em_dash and not dash_antes_p1:
                     audio.tocar_som("dash")
+            if any(
+                sombra["tipo"] == "curandeiro" and sombra["fim"] > tempo_atual
+                for sombra in getattr(player, "soldados_sombra", [])
+            ):
+                player.hp = min(player.hp_max, player.hp + 0.035)
         acoes_p2 = {}
         if player2:
             indice_joystick_p2 = min(1, len(joysticks) - 1) if joysticks else 0
@@ -956,12 +1464,17 @@ while rodando:
                 1 + player2.buffs_run.get("velocidade", 0) / max(1, player2.vel_base)
             ) * (1 + (evento_p2 or {}).get("velocidade", 0))
             if player2.hp > 0:
-                player2.mover(acoes_p2, tempo_atual, velocidade_p2, controles_jogo["P2"])
+                player2.mover(
+                    acoes_p2, tempo_atual, velocidade_p2, controles_jogo["P2"],
+                    sala_atual.obstaculos,
+                )
             if player2.hp > 0 and acoes_p2.get("dash") and not player2.em_dash:
                 dash_antes_p2 = player2.em_dash
                 player2.executar_dash(acoes_p2, tempo_atual, controles_jogo["P2"])
                 if player2.em_dash and not dash_antes_p2:
                     audio.tocar_som("dash")
+
+        atualizar_obstaculos()
 
         if sala_atual.tipo == "CHEFE" and sala_atual.fase_chefe == 0:
             if evento_tecla:
@@ -984,7 +1497,7 @@ while rodando:
                         mensagem_aviso = t("chefe_secreto_bloqueado", lang)
                         tempo_aviso = tempo_atual
 
-        if sala_atual.tipo in ["LOJA", "FERREIRO", "FORJA", "MAGIA", "CASSINO", "SACRIFICIO", "TESOURO", "EVENTO", "RELIQUIA", "BIBLIOTECA", "SANTUARIO", "FONTE", "PORTAL", "EXCLUSIVA_BIOMA", "RESGATE", "NPC_ENCONTRO", "REVIVER_P2", "TREINO_CHEFE", "ENIGMA"] and evento_tecla:
+        if sala_atual.tipo in ["LOJA", "FERREIRO", "FORJA", "MAGIA", "CASSINO", "SACRIFICIO", "TESOURO", "EVENTO", "RELIQUIA", "BIBLIOTECA", "SANTUARIO", "FONTE", "PORTAL", "EXCLUSIVA_BIOMA", "RESGATE", "NPC_ENCONTRO", "REVIVER_P2", "TREINO_CHEFE", "ENIGMA", "OBELISCO", "POCO", "RITUAL", "OVERCLOCK", "IMPOSTOR"] and evento_tecla:
             sala_atual.desenhar_conteudo_especial(
                 tela, player, evento_tecla, particulas, status_jogador, player2
             )
@@ -1004,7 +1517,9 @@ while rodando:
                     dano_p2, critico_p2 = dano_arma(
                         arma_p2,
                         player2,
-                        stats_p2["multiplicador_dano"] * getattr(player2, "multiplicador_dano_run", 1.0),
+                        stats_p2["multiplicador_dano"]
+                        * getattr(player2, "multiplicador_dano_run", 1.0)
+                        * (1 + player2.buffs_run.get("dano", 0)),
                     )
                     if arma_p2.get("tipo_arma") == "melee":
                         alvo_p2 = alvo_melee_automatico(player2, sala_atual.inimigos, arma_p2)
@@ -1015,7 +1530,10 @@ while rodando:
                             player2.melee_animacao_fim = tempo_atual + 220
                             for inimigo in sala_atual.inimigos:
                                 if inimigo_no_cone_melee(inimigo, player2, angulo_p2, alcance_arma_melee(arma_p2)):
-                                    aplicar_dano_inimigo(inimigo, dano_p2, critico_p2, tempo_atual, audio, estatisticas_run)
+                                    dano_real_p2 = aplicar_dano_inimigo(
+                                        inimigo, dano_p2, critico_p2, tempo_atual, audio, estatisticas_run
+                                    )
+                                    acumular_carga_suprema(player2, dano_real_p2)
                                     aplicar_efeitos_encantamento(arma_p2, inimigo, player2, dano_p2, tempo_atual)
                     else:
                         alvo_p2 = min(
@@ -1054,7 +1572,8 @@ while rodando:
             and CONFIG_JOGO["modo_tiro"] == "AUTOMATICO"
             else None
         )
-        entrada_manual = clicou or pygame.mouse.get_pressed()[0] or acoes_p1.get("ataque", False)
+        multiplicador_ataque_carregado = controle_combate.consumir_ataque()
+        entrada_manual = multiplicador_ataque_carregado > 0
         if arma and arma.get("tipo_arma") == "melee":
             ataque_solicitado = (
                 entrada_manual
@@ -1095,10 +1614,17 @@ while rodando:
                 if arma.get("tipo_arma") == "ranged":
                     arma["municao"] -= 1
                 dano_final, eh_crit = dano_arma(arma, player, mult_dano_player)
+                dano_final = max(
+                    5, arredondar_para_5(
+                        dano_final * max(1.0, multiplicador_ataque_carregado)
+                    )
+                )
 
                 if arma.get('tipo_arma') == 'melee':
                     audio.tocar_som("corte")
-                    alcance_melee = alcance_arma_melee(arma)
+                    alcance_melee = alcance_arma_melee(arma) * (
+                        1.45 if multiplicador_ataque_carregado >= 1.8 else 1.0
+                    )
                     inimigos_para_mirar = (
                         [alvo_melee_auto]
                         if CONFIG_JOGO["modo_tiro"] == "AUTOMATICO" and alvo_melee_auto
@@ -1113,18 +1639,54 @@ while rodando:
                     acertou_critico = False
                     for inimigo in sala_atual.inimigos:
                         if inimigo_no_cone_melee(inimigo, player, angulo_melee, alcance_melee):
+                            aviso_chefe = inimigo.get("ataque_especial_pendente")
+                            em_janela_parry = bool(
+                                aviso_chefe
+                                and aviso_chefe["aviso_ms"]
+                                - (tempo_atual - aviso_chefe["inicio"]) <= 180
+                            ) or (
+                                inimigo.get("tipo") == "boss"
+                                and inimigos_mgr.boss_em_preparacao
+                            )
+                            if (
+                                em_janela_parry
+                                and arma.get("tipo_arma") == "melee"
+                                and "espad" in arma.get("nome", "").casefold()
+                                and tempo_atual >= getattr(player, "parry_cooldown_ate", 0)
+                            ):
+                                inimigo["parry_atordoado_ate"] = tempo_atual + (
+                                    2200 if inimigo.get("tipo") == "boss" else 1300
+                                )
+                                player.parry_cooldown_ate = tempo_atual + 650
+                                player.parry_crit_ate = tempo_atual + 2200
+                                particulas.criar_texto_dano(
+                                    inimigo["rect"].centerx, inimigo["rect"].y - 32,
+                                    t("parry_perfeito", lang), AMARELO, True,
+                                )
+                                if inimigo.get("tipo") == "boss":
+                                    inimigos_mgr.boss_em_preparacao = False
+                                    inimigo["ataque_especial_pendente"] = None
+                            escudo_inimigo = inimigo.get("escudo", 0)
+                            if arma.get("mitica_id") == "espada_berserk":
+                                inimigo["escudo"] = 0
                             dano_aplicado = aplicar_dano_inimigo(
                                 inimigo, dano_final, eh_crit, tempo_atual, audio, estatisticas_run
                             )
+                            if arma.get("mitica_id") == "espada_berserk":
+                                inimigo["escudo"] = escudo_inimigo
+                            tentar_invocar_sombra(player, arma, inimigo, tempo_atual)
+                            acumular_carga_suprema(player, dano_aplicado)
                             aplicar_efeitos_encantamento(arma, inimigo, player, dano_aplicado, tempo_atual)
                             acertou_critico = acertou_critico or eh_crit
                             particulas.criar_explosao(inimigo['rect'].centerx, inimigo['rect'].centery, AMARELO)
-                            particulas.criar_texto_dano(
-                                inimigo['rect'].centerx,
-                                inimigo['rect'].y - 10,
-                                f"-{dano_aplicado}!" if eh_crit else f"-{dano_aplicado}",
-                                VERMELHO if eh_crit else BRANCO,
-                                eh_crit,
+                            particulas.criar_texto_dano(inimigo['rect'].centerx, inimigo['rect'].y - 10, f"-{dano_aplicado}!" if eh_crit else f"-{dano_aplicado}", VERMELHO if eh_crit else BRANCO, eh_crit)
+                    for obstaculo in sala_atual.obstaculos[:]:
+                        if inimigo_no_cone_melee(
+                            {"rect": obstaculo["rect"]}, player, angulo_melee,
+                            alcance_melee,
+                        ):
+                            danificar_obstaculo(
+                                sala_atual, obstaculo, dano_final, player
                             )
                     cura_sinergia = curar_por_sinergia_critica(player, acertou_critico)
                     if cura_sinergia:
@@ -1140,45 +1702,221 @@ while rodando:
                         alvo = min(sala_atual.inimigos, key=lambda e: math.hypot(e['rect'].centerx - player.rect.centerx, e['rect'].centery - player.rect.centery))
                         ang = math.atan2(alvo['rect'].centery - player.rect.centery, alvo['rect'].centerx - player.rect.centerx)
                     velocidade_projetil = velocidade_projetil_com_sinergia(player, 8)
-                    projeteis.append({
-                        'x': player.rect.centerx,
-                        'y': player.rect.centery,
-                        'vx': math.cos(ang) * velocidade_projetil,
-                        'vy': math.sin(ang) * velocidade_projetil,
-                        'dano': dano_final,
-                        'crit': eh_crit,
-                        'dono': 1,
-                        'arma': arma,
-                    })
+                    quantidade_tiros = (
+                        8 if arma.get("mitica_id") == "pistolas_duplas" and player.em_dash else 1
+                    )
+                    for indice_tiro in range(quantidade_tiros):
+                        angulo_tiro = (
+                            math.tau * indice_tiro / quantidade_tiros
+                            if quantidade_tiros > 1 else ang
+                        )
+                        projeteis.append({
+                            'x': player.rect.centerx,
+                            'y': player.rect.centery,
+                            'vx': math.cos(angulo_tiro) * velocidade_projetil,
+                            'vy': math.sin(angulo_tiro) * velocidade_projetil,
+                            'dano': dano_final,
+                            'crit': eh_crit,
+                            'dono': 1,
+                            'arma': arma,
+                            'retorna': bool(arma.get("retorna")),
+                            'origem': tuple(player.rect.center),
+                            'alcance_max': 260,
+                            'distancia_percorrida': 0,
+                            'hit_ids': [],
+                            'raio_explosao': 0,
+                            'pierce': arma.get("mitica_id") == "arco_luz",
+                        })
+                    if eh_crit and arma.get("mitica_id") == "arco_luz" and sala_atual.inimigos:
+                        alvo_luz = min(
+                            sala_atual.inimigos,
+                            key=lambda inimigo: math.dist(
+                                inimigo["rect"].center, player.rect.center
+                            ),
+                        )
+                        for deslocamento in (-0.28, 0, 0.28):
+                            angulo_luz = math.atan2(
+                                alvo_luz["rect"].centery - player.rect.centery,
+                                alvo_luz["rect"].centerx - player.rect.centerx,
+                            ) + deslocamento
+                            projeteis.append({
+                                "x": player.rect.centerx, "y": player.rect.centery,
+                                "vx": math.cos(angulo_luz) * velocidade_projetil,
+                                "vy": math.sin(angulo_luz) * velocidade_projetil,
+                                "dano": max(5, dano_final // 2), "crit": False,
+                                "dono": 1, "arma": arma, "pierce": True,
+                                "hit_ids": [],
+                            })
                 if arma.get("tipo_arma") == "ranged" and arma["municao"] <= 0:
                     arma["recarregando_ate"] = tempo_atual + arma.get("recarga_ms", 1400)
                     player.recarregando_ate = arma["recarregando_ate"]
 
         for p in projeteis[:]:
+            dono = player2 if p.get("dono") == 2 and player2 else player
+            if p.get("retorna") and p.get("voltando"):
+                dx_retorno = dono.rect.centerx - p["x"]
+                dy_retorno = dono.rect.centery - p["y"]
+                distancia_retorno = max(1, math.hypot(dx_retorno, dy_retorno))
+                if distancia_retorno <= 22:
+                    projeteis.remove(p)
+                    continue
+                velocidade_retorno = max(6, math.hypot(p["vx"], p["vy"]))
+                p["vx"] = dx_retorno / distancia_retorno * velocidade_retorno
+                p["vy"] = dy_retorno / distancia_retorno * velocidade_retorno
+            x_anterior, y_anterior = p["x"], p["y"]
             p['x'] += p['vx']
             p['y'] += p['vy']
+            if p.get("retorna"):
+                p["distancia_percorrida"] = p.get("distancia_percorrida", 0) + math.hypot(
+                    p["x"] - x_anterior, p["y"] - y_anterior
+                )
+                if (
+                    not p.get("voltando")
+                    and p["distancia_percorrida"] >= p.get("alcance_max", 260)
+                ):
+                    p["voltando"] = True
+                    p["hit_ids"] = []
             p_rect = pygame.Rect(p['x']-4, p['y']-4, 8, 8)
             hit = False
             for inimigo in sala_atual.inimigos:
-                if p_rect.colliderect(inimigo['rect']):
+                if (
+                    p_rect.colliderect(inimigo['rect'])
+                    and id(inimigo) not in p.get("hit_ids", [])
+                ):
                     if inimigo.get('tipo') == 'boss' and tempo_atual < inimigo.get('tempo_imortal_fim', 0):
                         particulas.criar_texto_dano(p['x'], p['y'] - 10, "IMORTAL!", CIANO)
                     else:
-                        aplicar_dano_inimigo(inimigo, p['dano'], p['crit'], tempo_atual, audio, estatisticas_run)
-                        dono = player2 if p.get("dono") == 2 else player
+                        dano_real = aplicar_dano_inimigo(
+                            inimigo, p['dano'], p['crit'], tempo_atual, audio, estatisticas_run
+                        )
+                        tentar_invocar_sombra(dono, p.get("arma"), inimigo, tempo_atual)
+                        acumular_carga_suprema(dono, dano_real)
                         aplicar_efeitos_encantamento(p.get("arma"), inimigo, dono, p["dano"], tempo_atual)
                         particulas.criar_explosao(p['x'], p['y'], AMARELO)
-                        particulas.criar_texto_dano(p['x'], p['y'] - 10, f"-{p['dano']}", VERMELHO if p['crit'] else BRANCO)
-                    hit = True
-                    break
-            if hit or p['x'] < 60 or p['x'] > LARGURA - 60 or p['y'] < 60 or p['y'] > ALTURA - 60:
+                        particulas.criar_texto_dano(
+                            p['x'], p['y'] - 10,
+                            f"-{dano_real}{'!!!' if p['crit'] else ''}",
+                            AMARELO if p['crit'] else BRANCO, p['crit'],
+                        )
+                        raio = p.get("raio_explosao", 0)
+                        if raio:
+                            for inimigo_area in sala_atual.inimigos:
+                                if inimigo_area is inimigo or math.dist(
+                                    inimigo_area["rect"].center, p_rect.center
+                                ) > raio:
+                                    continue
+                                aplicar_dano_inimigo(
+                                    inimigo_area, p["dano"] * 0.75, p["crit"],
+                                    tempo_atual, audio, estatisticas_run,
+                                )
+                        if p.get("split") and not p.get("split_done"):
+                            p["split_done"] = True
+                            alvos_laser = sorted(
+                                (
+                                    alvo for alvo in sala_atual.inimigos
+                                    if alvo is not inimigo
+                                ),
+                                key=lambda alvo: math.dist(
+                                    alvo["rect"].center, inimigo["rect"].center
+                                ),
+                            )[:3]
+                            for alvo_laser in alvos_laser:
+                                dx = alvo_laser["rect"].centerx - inimigo["rect"].centerx
+                                dy = alvo_laser["rect"].centery - inimigo["rect"].centery
+                                distancia = max(1, math.hypot(dx, dy))
+                                projeteis.append({
+                                    "x": inimigo["rect"].centerx,
+                                    "y": inimigo["rect"].centery,
+                                    "vx": dx / distancia * 12,
+                                    "vy": dy / distancia * 12,
+                                    "dano": max(5, int(p["dano"] * 0.45)),
+                                    "crit": False, "dono": p.get("dono", 1),
+                                    "arma": p.get("arma"), "pierce": True,
+                                    "hit_ids": [],
+                                })
+                    p.setdefault("hit_ids", []).append(id(inimigo))
+                    if p.get("retorna") and not p.get("voltando"):
+                        p["voltando"] = True
+                        p["hit_ids"] = []
+                        break
+                    if not p.get("pierce"):
+                        hit = True
+                        break
+            if not hit:
+                for obstaculo in sala_atual.obstaculos[:]:
+                    if not p_rect.colliderect(obstaculo["rect"]):
+                        continue
+                    danificar_obstaculo(sala_atual, obstaculo, p["dano"], dono)
+                    if obstaculo["solido"]:
+                        hit = True
+                        break
+            fora_da_sala = (
+                p['x'] < 60 or p['x'] > LARGURA - 60
+                or p['y'] < 60 or p['y'] > ALTURA - 60
+            )
+            if p.get("retorna") and fora_da_sala and not p.get("voltando"):
+                p["voltando"] = True
+                p["hit_ids"] = []
+            if hit or (fora_da_sala and not p.get("retorna")):
                 projeteis.remove(p)
+
+        for dono_efeito in (player, player2):
+            if not dono_efeito:
+                continue
+            meteoros = getattr(dono_efeito, "meteoros_ativos", [])
+            for meteoro in meteoros[:]:
+                raio = meteoro["raio"]
+                if tempo_atual < meteoro["detonar"]:
+                    continue
+                for inimigo in sala_atual.inimigos:
+                    if math.dist(inimigo["rect"].center, meteoro["pos"]) <= raio:
+                        dano_meteoro = aplicar_dano_inimigo(
+                            inimigo, meteoro["dano"], True, tempo_atual,
+                            audio, estatisticas_run,
+                        )
+                        particulas.criar_texto_dano(
+                            inimigo["rect"].centerx, inimigo["rect"].y - 12,
+                            f"-{dano_meteoro}!!!", AMARELO, True,
+                        )
+                particulas.criar_explosao(*meteoro["pos"], LARANJA)
+                meteoros.remove(meteoro)
+            dono_efeito.meteoros_ativos = meteoros
+
+            singularidade = getattr(dono_efeito, "singularidade_ativa", None)
+            if not singularidade:
+                continue
+            pos = singularidade["pos"]
+            if tempo_atual < singularidade["fim"]:
+                for inimigo in sala_atual.inimigos:
+                    dx = pos[0] - inimigo["rect"].centerx
+                    dy = pos[1] - inimigo["rect"].centery
+                    distancia = math.hypot(dx, dy)
+                    if 0 < distancia <= 260:
+                        inimigo["rect"].x += int(dx / distancia * 4)
+                        inimigo["rect"].y += int(dy / distancia * 4)
+            else:
+                for inimigo in sala_atual.inimigos:
+                    if math.dist(inimigo["rect"].center, pos) <= 260:
+                        dano_singularidade = aplicar_dano_inimigo(
+                            inimigo, singularidade["dano"], True,
+                            tempo_atual, audio, estatisticas_run,
+                        )
+                        particulas.criar_texto_dano(
+                            inimigo["rect"].centerx, inimigo["rect"].y - 12,
+                            f"-{dano_singularidade}!!!", ROXO_UI, True,
+                        )
+                particulas.criar_explosao(*pos, ROXO_UI)
+                dono_efeito.singularidade_ativa = None
 
         if not sala_atual.limpa and len(sala_atual.inimigos) == 0:
             if sala_atual.tipo == "NORMAL":
-                sala_atual.spawnar_proxima_onda()
+                sala_atual.spawnar_proxima_onda(getattr(player, "sorte_run", 0.0))
             elif sala_atual.tipo == "TREINO_CHEFE":
-                sala_atual.spawnar_proxima_onda()
+                sala_atual.spawnar_proxima_onda(getattr(player, "sorte_run", 0.0))
+            elif sala_atual.tipo == "OVERCLOCK" and sala_atual.overclock_inicio is not None and not sala_atual.overclock_concluido:
+                sala_atual.spawnar_proxima_onda(getattr(player, "sorte_run", 0.0))
+            elif sala_atual.tipo == "IMPOSTOR" and sala_atual.impostor_revelado:
+                sala_atual.limpa = True
             elif sala_atual.tipo == "MIMICO":
                 sala_atual.limpa = True
 
@@ -1205,6 +1943,35 @@ while rodando:
                 )
             elif dot and tempo_atual >= dot["fim"]:
                 inimigo.pop("encantamento_dot", None)
+
+        for sombra in player.soldados_sombra[:]:
+            if sombra["fim"] <= tempo_atual:
+                player.soldados_sombra.remove(sombra)
+                continue
+            sombra.setdefault("x", player.rect.centerx)
+            sombra.setdefault("y", player.rect.centery)
+            alvo_sombra = min(
+                sala_atual.inimigos,
+                key=lambda alvo: math.dist(
+                    (sombra["x"], sombra["y"]), alvo["rect"].center
+                ),
+                default=None,
+            )
+            if not alvo_sombra:
+                continue
+            dx = alvo_sombra["rect"].centerx - sombra["x"]
+            dy = alvo_sombra["rect"].centery - sombra["y"]
+            distancia = max(1, math.hypot(dx, dy))
+            if distancia > 30:
+                sombra["x"] += dx / distancia * 3.2
+                sombra["y"] += dy / distancia * 3.2
+            elif tempo_atual >= sombra["proximo_ataque"]:
+                dano_sombra = aplicar_dano_inimigo(
+                    alvo_sombra, max(5, int(player.equipado_arma["dano"] * 0.3)),
+                    False, tempo_atual, audio, estatisticas_run,
+                )
+                sombra["proximo_ataque"] = tempo_atual + 800
+                acumular_carga_suprema(player, dano_sombra)
 
         inimigos_mgr.atualizar_e_colidir(
             sala_atual, player, particulas, estatisticas_run, projeteis_inimigos,
@@ -1254,8 +2021,14 @@ while rodando:
                 iniciar_transicao(avancar_andar)
 
         for pi in projeteis_inimigos[:]:
-            pi['x'] += pi['vx']
-            pi['y'] += pi['vy']
+            aura_infinita = (
+                player.equipado_arma
+                and player.equipado_arma.get("mitica_id") == "grimorio_infinito"
+                and math.dist((pi["x"], pi["y"]), player.rect.center) <= 115
+            )
+            fator_aura = 0.18 if aura_infinita else 1.0
+            pi['x'] += pi['vx'] * fator_aura
+            pi['y'] += pi['vy'] * fator_aura
             pi_rect = pygame.Rect(pi['x']-3, pi['y']-3, 6, 6)
             atingidos = [] if modo_espectador else [(player, status_jogador)]
             if player2:
@@ -1272,6 +2045,11 @@ while rodando:
                     gerente, 0.08, pi.get("efeito"),
                     pi.get("duracao_efeito", 0), audio,
                 )
+                projeteis_inimigos.remove(pi)
+            elif any(
+                obstaculo.get("solido") and pi_rect.colliderect(obstaculo["rect"])
+                for obstaculo in sala_atual.obstaculos
+            ):
                 projeteis_inimigos.remove(pi)
             elif pi['x'] < 60 or pi['x'] > LARGURA - 60 or pi['y'] < 60 or pi['y'] > ALTURA - 60:
                 projeteis_inimigos.remove(pi)
@@ -1293,33 +2071,19 @@ while rodando:
             registrar_progresso(carregar_dados(), "salas")
             if sala_atual.sem_dano and not sala_atual.recompensa_sem_dano_concedida:
                 sala_atual.recompensa_sem_dano_concedida = True
-                multiplicador_recompensas = getattr(
-                    player, "multiplicador_recompensas", 1.0
-                )
-                ouro_bonus = player.ganhar_ouro(25)
-                gemas_bonus = arredondar_para_5(
-                    5
-                    * getattr(player, "multiplicador_gemas", 1.0)
-                    * multiplicador_recompensas
-                )
+                player.ganhar_ouro(25)
                 dados_recompensa = carregar_dados()
-                dados_recompensa["gemas"] = (
-                    dados_recompensa.get("gemas", 0) + gemas_bonus
-                )
+                dados_recompensa["gemas"] = dados_recompensa.get("gemas", 0) + 5
                 salvar_dados(dados_recompensa)
                 estatisticas_run["gemas_coletadas"] = (
-                    estatisticas_run.get("gemas_coletadas", 0) + gemas_bonus
+                    estatisticas_run.get("gemas_coletadas", 0) + 5
                 )
                 estatisticas_run["salas_sem_dano"] = (
                     estatisticas_run.get("salas_sem_dano", 0) + 1
                 )
                 particulas.criar_texto_dano(
                     player.rect.centerx, player.rect.y - 28,
-                    t("recompensa_sem_dano", lang).format(
-                        ouro=ouro_bonus, gemas=gemas_bonus
-                    ),
-                    DOURADO_UI,
-                    True,
+                    t("recompensa_sem_dano", lang), DOURADO_UI, True,
                 )
 
         for jogador_morto in [alvo for alvo in (player, player2) if alvo and alvo.hp <= 0]:
@@ -1356,7 +2120,7 @@ while rodando:
 
         pode_s = sala_atual.limpa or sala_atual.tipo in [
             "LOJA", "FERREIRO", "FORJA", "MAGIA", "CASSINO", "SACRIFICIO",
-            "RECOMPENSA", "EVENTO", "RELIQUIA", "BIBLIOTECA", "SANTUARIO",
+            "RECOMPENSA", "TESOURO", "EVENTO", "RELIQUIA", "BIBLIOTECA", "SANTUARIO",
             "FONTE", "PORTAL", "EXCLUSIVA_BIOMA", "RESGATE", "NPC_ENCONTRO", "REVIVER_P2",
         ]
         if pode_s and not em_transicao:
@@ -1386,6 +2150,10 @@ while rodando:
 
     if estado_jogo == "MENU_INICIAL":
         menu_inicial.desenhar(tela, pos_mouse, carregar_dados().get('gemas', 0), CONFIG_JOGO)
+
+    elif estado_jogo == "NPC_HUB":
+        hub_npcs.atualizar()
+        hub_npcs.desenhar(tela, pos_mouse, lang, carregar_dados())
 
     elif estado_jogo in ["JOGANDO", "INVENTARIO", "PAUSE"]:
         info_b = BIOMAS_ESTETICA.get(bioma_atual, BIOMAS_ESTETICA[1])
@@ -1418,16 +2186,28 @@ while rodando:
                 tela.blit(txt_aviso, (LARGURA//2 - txt_aviso.get_width()//2, ALTURA//2 + 50))
 
         desenhar_ambiente(tela, bioma_atual, tempo_atual)
-        if sala_atual.tipo in ["LOJA", "FERREIRO", "FORJA", "MAGIA", "CASSINO", "SACRIFICIO", "RECOMPENSA", "MIMICO", "EVENTO", "RELIQUIA", "BIBLIOTECA", "SANTUARIO", "FONTE", "PORTAL", "CACADA", "EXCLUSIVA_BIOMA", "RESGATE", "NPC_ENCONTRO", "REVIVER_P2", "TREINO_CHEFE", "ENIGMA"]:
+        if sala_atual.tipo in ["LOJA", "FERREIRO", "FORJA", "MAGIA", "CASSINO", "SACRIFICIO", "RECOMPENSA", "MIMICO", "TESOURO", "EVENTO", "RELIQUIA", "BIBLIOTECA", "SANTUARIO", "FONTE", "PORTAL", "CACADA", "EXCLUSIVA_BIOMA", "RESGATE", "NPC_ENCONTRO", "REVIVER_P2", "TREINO_CHEFE", "ENIGMA", "OBELISCO", "POCO", "RITUAL", "OVERCLOCK", "IMPOSTOR"]:
             sala_atual.desenhar_conteudo_especial(
                 tela, player, None, particulas, status_jogador, player2
             )
+        sala_atual.desenhar_obstaculos(tela)
 
         for p in projeteis:
             pygame.draw.circle(tela, AMARELO, (int(p['x']), int(p['y'])), 4)
 
         for pi in projeteis_inimigos:
             pygame.draw.circle(tela, VERMELHO, (int(pi['x']), int(pi['y'])), 4)
+
+        for dono_efeito in (player, player2):
+            if not dono_efeito:
+                continue
+            for meteoro in getattr(dono_efeito, "meteoros_ativos", []):
+                pygame.draw.circle(
+                    tela, LARANJA, meteoro["pos"], int(meteoro["raio"]), 2
+                )
+            singularidade = getattr(dono_efeito, "singularidade_ativa", None)
+            if singularidade:
+                pygame.draw.circle(tela, ROXO_UI, singularidade["pos"], 105, 2)
 
         inimigos_mgr.desenhar_mira_boss(tela, sala_atual)
         sala_atual.desenhar_inimigos_e_moedas(
@@ -1437,6 +2217,17 @@ while rodando:
                 if alvo and alvo.hp > 0 and (alvo is not player or not modo_espectador)
             ] or [player],
         )
+        for sombra in getattr(player, "soldados_sombra", []):
+            pygame.draw.circle(
+                tela, (104, 63, 190),
+                (int(sombra.get("x", player.rect.centerx)),
+                 int(sombra.get("y", player.rect.centery))), 11,
+            )
+            pygame.draw.circle(
+                tela, ROXO_UI,
+                (int(sombra.get("x", player.rect.centerx)),
+                 int(sombra.get("y", player.rect.centery))), 11, 2,
+            )
 
         if not modo_espectador:
             desenhar_cone_corte(
@@ -1449,6 +2240,61 @@ while rodando:
             )
         if player.hp > 0 and not modo_espectador:
             player.desenhar(tela)
+            desenhar_hud_mitica(tela, player, tempo_atual, lang)
+            conjuracao = getattr(player, "conjuracao_explosao", None)
+            if conjuracao:
+                progresso = max(
+                    0.0,
+                    min(
+                        1.0,
+                        (tempo_atual - conjuracao["inicio"])
+                        / max(1, conjuracao["fim"] - conjuracao["inicio"]),
+                    ),
+                )
+                barra_conjuracao = pygame.Rect(
+                    player.rect.centerx - 36, player.rect.y - 18, 72, 6
+                )
+                pygame.draw.rect(tela, (34, 25, 20), barra_conjuracao, border_radius=3)
+                pygame.draw.rect(
+                    tela, LARANJA,
+                    (barra_conjuracao.x, barra_conjuracao.y,
+                     int(barra_conjuracao.width * progresso), barra_conjuracao.height),
+                    border_radius=3,
+                )
+            if player.escudo_ativo:
+                pygame.draw.circle(tela, CIANO_UI, player.rect.center, 23, 3)
+                restante_escudo = max(0, controle_combate.escudo_ate - tempo_atual)
+                barra = pygame.Rect(
+                    player.rect.centerx - 28, player.rect.bottom + 8, 56, 6
+                )
+                pygame.draw.rect(tela, (24, 42, 48), barra, border_radius=3)
+                pygame.draw.rect(
+                    tela, CIANO_UI,
+                    (barra.x, barra.y, int(barra.width * restante_escudo / 3000), barra.height),
+                    border_radius=3,
+                )
+                texto = FONTE_PEQUENA.render(
+                    f"{t('escudo_ativo', lang)} {restante_escudo / 1000:.1f}s",
+                    True, CIANO_UI,
+                )
+                tela.blit(
+                    texto,
+                    (player.rect.centerx - texto.get_width() // 2, barra.bottom + 2),
+                )
+            if controle_combate.inicio_ataque is not None:
+                progresso_carga = min(
+                    1.0, (tempo_atual - controle_combate.inicio_ataque) / 800
+                )
+                barra_carga = pygame.Rect(
+                    player.rect.centerx - 28, player.rect.bottom + 8, 56, 6
+                )
+                pygame.draw.rect(tela, (48, 41, 18), barra_carga, border_radius=3)
+                pygame.draw.rect(
+                    tela, AMARELO,
+                    (barra_carga.x, barra_carga.y,
+                     int(barra_carga.width * progresso_carga), barra_carga.height),
+                    border_radius=3,
+                )
         if player2:
             desenhar_cone_corte(
                 tela, player2,
@@ -1486,6 +2332,30 @@ while rodando:
                 hp_boss_max = arredondar_para_5(inimigo['hp_max'])
                 txt_b = FONTE_SYS.render(f"{nome_boss}: {hp_boss_atual} / {hp_boss_max} HP", True, BRANCO)
                 tela.blit(txt_b, (bx_b + largura_barra//2 - txt_b.get_width()//2, by_b - 22))
+                restante_atordoado = max(
+                    0, inimigo.get("parry_atordoado_ate", 0) - tempo_atual
+                )
+                if restante_atordoado:
+                    barra_parry = pygame.Rect(
+                        inimigo["rect"].centerx - 48, inimigo["rect"].top - 18,
+                        96, 7,
+                    )
+                    pygame.draw.rect(tela, (52, 42, 14), barra_parry, border_radius=3)
+                    pygame.draw.rect(
+                        tela, AMARELO,
+                        (barra_parry.x, barra_parry.y,
+                         int(barra_parry.width * restante_atordoado / 2200),
+                         barra_parry.height),
+                        border_radius=3,
+                    )
+                    label_parry = FONTE_PEQUENA.render(
+                        t("parry_boss", lang), True, AMARELO
+                    )
+                    tela.blit(
+                        label_parry,
+                        (inimigo["rect"].centerx - label_parry.get_width() // 2,
+                         barra_parry.y - label_parry.get_height() - 2),
+                    )
 
         desenhar_minimapa(tela, mapa_salas, sala_atual)
         ambiente_txt = FONTE_PEQUENA.render(f"{t('bioma', lang)}: {nome_ambiente}", True, CIANO_UI)
@@ -1494,10 +2364,10 @@ while rodando:
         # Barras de Status
         bx = LARGURA - 160
         by = 175
-        fundo_status = pygame.Surface((164, 92), pygame.SRCALPHA)
+        fundo_status = pygame.Surface((164, 114), pygame.SRCALPHA)
         fundo_status.fill((*PAINEL_UI, 190))
         tela.blit(fundo_status, (bx - 12, by - 13))
-        pygame.draw.rect(tela, BORDA_UI, (bx - 12, by - 13, 164, 92), 1, border_radius=12)
+        pygame.draw.rect(tela, BORDA_UI, (bx - 12, by - 13, 164, 114), 1, border_radius=12)
         pygame.draw.rect(tela, (8, 10, 18), (bx - 1, by - 1, 142, 14), border_radius=6)
         pygame.draw.rect(tela, VERDE, (bx, by, int(140 * max(0, player.hp/player.hp_max)), 12))
         pygame.draw.rect(tela, BORDA_UI, (bx, by, 140, 12), 1, border_radius=6)
@@ -1514,6 +2384,17 @@ while rodando:
             f"Mana: {arredondar_para_5(player.mana)}/{arredondar_para_5(player.mana_max)}", True, BRANCO
         )
         tela.blit(txt_mana, (bx + 5, my - 1))
+        texto_suprema = FONTE_PEQUENA.render(
+            t("ultimate_carga", lang).format(valor=int(player.carga_suprema)),
+            True, ROXO_UI,
+        )
+        tela.blit(texto_suprema, (bx, my + 35))
+        pygame.draw.rect(tela, (8, 10, 18), (bx, my + 52, 140, 6), border_radius=3)
+        pygame.draw.rect(
+            tela, ROXO_UI, (bx, my + 52, int(140 * player.carga_suprema / 100), 6),
+            border_radius=3,
+        )
+        pygame.draw.rect(tela, BORDA_UI, (bx, my + 52, 140, 6), 1, border_radius=3)
 
         # Dificuldade abaixo do mapa
         modo_dif = obter_modo_dificuldade()
@@ -1526,8 +2407,8 @@ while rodando:
         txt_dif = FONTE_PEQUENA.render(f"{t('modo', lang)}: {t(f'dificuldade_{modo_dif.lower()}', lang)}", True, cor_dif)
         tela.blit(txt_dif, (bx, my + 18))
         if player2:
-            p2_y = 275
-            p2_card = pygame.Rect(bx - 12, p2_y - 8, 164, 42)
+            p2_y = 290
+            p2_card = pygame.Rect(bx - 12, p2_y - 8, 164, 64)
             pygame.draw.rect(tela, PAINEL_UI, p2_card, border_radius=8)
             pygame.draw.rect(tela, BORDA_UI, p2_card, 1, border_radius=8)
             pygame.draw.rect(tela, (8, 10, 18), (bx, p2_y, 140, 12), border_radius=6)
@@ -1538,6 +2419,18 @@ while rodando:
                 True, BRANCO,
             )
             tela.blit(texto_p2_hp, (bx + 2, p2_y + 15))
+            texto_suprema_p2 = FONTE_PEQUENA.render(
+                t("ultimate_carga", lang).format(valor=int(player2.carga_suprema)),
+                True, ROXO_UI,
+            )
+            tela.blit(texto_suprema_p2, (bx + 2, p2_y + 31))
+            pygame.draw.rect(tela, (8, 10, 18), (bx, p2_y + 48, 140, 6), border_radius=3)
+            pygame.draw.rect(
+                tela, ROXO_UI,
+                (bx, p2_y + 48, int(140 * player2.carga_suprema / 100), 6),
+                border_radius=3,
+            )
+            pygame.draw.rect(tela, BORDA_UI, (bx, p2_y + 48, 140, 6), 1, border_radius=3)
 
         # HUD Topo
         txt_hud = FONTE_SYS.render(
@@ -1688,7 +2581,7 @@ while rodando:
         tela.set_clip(clip_anterior_missoes)
 
         if tempo_atual < getattr(player, "esquivou_tempo", 0):
-            texto_esquivou = FONTE_GRANDE.render(t("esquivou", lang), True, CIANO)
+            texto_esquivou = FONTE_PEQUENA.render(t("esquivou", lang), True, CIANO)
             tela.blit(
                 texto_esquivou,
                 (player.rect.centerx - texto_esquivou.get_width() // 2, player.rect.y - 42),
@@ -1932,6 +2825,12 @@ while rodando:
             label = FONTE_SYS.render(t(chave, lang), True, DOURADO_UI if hover else BRANCO)
             tela.blit(label, (rect.centerx - label.get_width() // 2, rect.centery - label.get_height() // 2))
 
+    if (
+        estado_jogo in ("JOGANDO", "INVENTARIO", "PAUSE")
+        and registrar_baixa_vida(player, tempo_atual, audio)
+    ):
+        desenhar_efeito_vida_baixa(tela)
+    controles_touch.desenhar(tela, estado_jogo == "JOGANDO")
     desenhar_fade(tela)
     pygame.display.flip()
 
