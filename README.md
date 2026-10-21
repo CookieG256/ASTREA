@@ -1,7 +1,7 @@
 # 🌌 ASTREA v1.0.0
 
 [![Discord](https://img.shields.io/badge/Discord-Comunidade-7289DA?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/zsXp6Nf6zF)
-[![GitHub Release](https://img.shields.io/badge/Release-v1.0.0-brightgreen?style=for-the-badge)](https://github.com/CookieG256/ASTREA/releases)
+[![GitHub Release](https://img.shields.io/badge/Release-v1.2.0-brightgreen?style=for-the-badge)](https://github.com/CookieG256/ASTREA/releases)
 
 [🇧🇷 Português](#-português) | [🇺🇸 English](#-english) | [🇪🇸 Español ](#-español)
 
