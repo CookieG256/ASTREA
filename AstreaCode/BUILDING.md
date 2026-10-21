@@ -20,6 +20,8 @@ uses the shared `pygame` API, but the Android package is not a pygame-ce build.
 The desktop dependency remains the one declared in `requirements.txt`. If the
 game starts depending on pygame-ce-only APIs, those features must be replaced or
 an Android recipe for pygame-ce must be validated before publishing.
+The Android toolchain pins python-for-android to `v2023.09.16` (Python 3.10.10)
+because the current pygame recipe is not compatible with newer Python releases.
 
 For a local Android build, use Linux (or a Linux VM/WSL environment) with Java
 17, the Android SDK/NDK, and Buildozer installed. The APK requires Android 7.0

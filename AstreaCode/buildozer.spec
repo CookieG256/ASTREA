@@ -19,6 +19,8 @@ android.archs = arm64-v8a
 android.accept_sdk_license = True
 android.allow_backup = False
 
+p4a.branch = v2023.09.16
+p4a.commit = e155baf9f94ef6ef0589541210e9cdb20f960d52
 p4a.bootstrap = sdl2
 
 [buildozer]
