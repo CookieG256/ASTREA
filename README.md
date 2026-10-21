@@ -14,7 +14,7 @@
 
 ### 🚀 Funcionalidades
 * **Sistema de Classes e Raças:** Escolha diferentes combinações com buffs e habilidades passivas únicas para cada partida.
-* **Múltiplas Plataformas:** Jogo compilado e disponível de forma nativa para Windows, macOS e Linux.
+* **Múltiplas Plataformas:** Jogo compilado e disponível de forma nativa para Android, Windows, macOS e Linux.
 * **Multi Jogador Local:** Jogo Conta com multi jogador local e com disponibilidade para controle e teclado.
 
 ### 📥 Como Jogar
@@ -31,7 +31,7 @@ Junte-se à nossa comunidade oficial no Discord: [Discord do ASTREA](https://dis
 
 ### 🚀 Features
 * **Classes & Races System:** Choose different combinations featuring unique buffs and passive abilities for every run.
-* **Cross-Platform:** Compiled and natively available for Windows, macOS, and Linux.
+* **Cross-Platform:** Compiled and natively available for Android, Windows, macOS, and Linux.
 * **Local Multiplayer:** The game features local multiplayer and supports both controllers and keyboards.
 
 ### 📥 How to Play
@@ -46,7 +46,7 @@ Join our official community on Discord: [ASTREA Discord](https://discord.gg/zsXp
 
 ### 🚀 Características
 * **Sistema de clases y razas:** Elige diferentes combinaciones con mejoras buffs y habilidades pasivas únicas para cada partida.
-* **Multiplataforma:** El juego está compilado y disponible de forma nativa para Windows, macOS y Linux.
+* **Multiplataforma:** El juego está compilado y disponible de forma nativa para Telefono, Windows, macOS y Linux.
 * **Multijugador local:** El juego cuenta con modo multijugador local y es compatible tanto con mando como con teclado.
 
 ### 📥 Cómo jugar
